@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Um produto no estoque.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Nome do produto" },
+        "description": { "type": "string", "description": "Descrição do produto" },
+        "price": { "type": "number", "description": "Preço de venda" },
+        "cost": { "type": "number", "description": "Preço de custo" },
+        "stock": { "type": "number", "description": "Quantidade em estoque" },
+        "category": { "type": "string", "description": "Categoria do produto" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "price", "stock"]
+    },
+    "ServiceOrder": {
+      "title": "ServiceOrder",
+      "description": "Uma ordem de serviço de assistência técnica.",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string", "description": "Nome do cliente" },
+        "customerPhone": { "type": "string", "description": "Telefone do cliente" },
+        "device": { "type": "string", "description": "Aparelho (ex: iPhone 13)" },
+        "problem": { "type": "string", "description": "Problema relatado" },
+        "status": { "type": "string", "enum": ["pending", "in-progress", "completed", "delivered", "cancelled"] },
+        "totalValue": { "type": "number", "description": "Valor total do serviço" },
+        "partsUsed": { "type": "array", "items": { "type": "string" }, "description": "IDs das peças usadas" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerName", "device", "status"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Uma venda realizada no PDV.",
+      "type": "object",
+      "properties": {
+        "items": { "type": "array", "items": { "type": "object" }, "description": "Itens vendidos" },
+        "total": { "type": "number", "description": "Valor total da venda" },
+        "paymentMethod": { "type": "string", "enum": ["cash", "credit_card", "debit_card", "pix"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["items", "total", "paymentMethod"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Perfil do usuário do sistema.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "employee"] }
+      },
+      "required": ["name", "email", "role"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": { "schema": "Product", "description": "Coleção de produtos" },
+    "/serviceOrders/{orderId}": { "schema": "ServiceOrder", "description": "Coleção de ordens de serviço" },
+    "/sales/{saleId}": { "schema": "Sale", "description": "Coleção de vendas" },
+    "/users/{userId}": { "schema": "User", "description": "Coleção de usuários" }
+  }
+}

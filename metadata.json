@@ -1,0 +1,5 @@
+{
+  "name": "CellRepair Pro",
+  "description": "Sistema completo de PDV, Estoque e Ordens de Serviço para Assistência Técnica de Celulares.",
+  "requestFramePermissions": ["camera"]
+}
