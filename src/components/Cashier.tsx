@@ -93,7 +93,11 @@ export default function Cashier({ user }: { user: any }) {
   useEffect(() => {
     const testConnection = async () => {
       try {
-        const { error: sbError } = await supabase.from('cashier_sessions').select('id').limit(1);
+        const { error: sbError } = await supabase
+          .from('cashier_sessions')
+          .select('id')
+          .eq('user_id', user.id)
+          .limit(1);
         if (sbError) {
           console.error("Erro de conexão/tabela Supabase:", sbError);
           setError(`Erro de conexão com o banco: ${sbError.message} (Tabela cashier_sessions pode estar faltando)`);
@@ -156,6 +160,7 @@ export default function Cashier({ user }: { user: any }) {
       const { data, error: sbError } = await supabase
         .from('cashier_sessions')
         .select('*')
+        .eq('user_id', user.id)
         .eq('status', 'open')
         .single();
 
@@ -174,6 +179,7 @@ export default function Cashier({ user }: { user: any }) {
       const { data } = await supabase
         .from('cashier_sessions')
         .select('*')
+        .eq('user_id', user.id)
         .eq('status', 'closed')
         .order('closed_at', { ascending: false })
         .limit(20);
@@ -204,9 +210,9 @@ export default function Cashier({ user }: { user: any }) {
       const end = dateRange.end + 'T23:59:59';
 
       const [salesRes, ordersRes, movementsRes] = await Promise.all([
-        supabase.from('sales').select('*').gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false }),
-        supabase.from('service_orders').select('*').eq('status', 'delivered').gte('updated_at', start).lte('updated_at', end).order('updated_at', { ascending: false }),
-        supabase.from('cashier_movements').select('*').gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false })
+        supabase.from('sales').select('*').eq('user_id', user.id).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false }),
+        supabase.from('service_orders').select('*').eq('user_id', user.id).eq('status', 'delivered').gte('updated_at', start).lte('updated_at', end).order('updated_at', { ascending: false }),
+        supabase.from('cashier_movements').select('*').eq('user_id', user.id).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false })
       ]);
 
       if (salesRes.error) throw salesRes.error;
@@ -253,6 +259,7 @@ export default function Cashier({ user }: { user: any }) {
       const { data, error: sbError } = await supabase
         .from('cashier_sessions')
         .insert([{
+          user_id: user.id,
           initial_amount: amount,
           expected_amount: amount,
           status: 'open'
@@ -339,6 +346,7 @@ export default function Cashier({ user }: { user: any }) {
       const { error: sbError } = await supabase
         .from('cashier_movements')
         .insert([{
+          user_id: user.id,
           session_id: activeSession.id,
           type: movementType,
           amount: amount,

@@ -56,13 +56,81 @@ export default function Profile({ user }: { user: any }) {
     }
   };
 
+  const seedData = async () => {
+    setIsSaving(true);
+    try {
+      // 1. Categories
+      const categories = [
+        { name: 'Smartphones', description: 'Aparelhos celulares', user_id: user.id },
+        { name: 'Acessórios', description: 'Capas, películas, cabos', user_id: user.id },
+        { name: 'Peças', description: 'Telas, baterias, conectores', user_id: user.id }
+      ];
+      const { data: catData, error: catError } = await supabase.from('categories').insert(categories).select();
+      if (catError) throw catError;
+
+      // 2. Products
+      const products = [
+        { name: 'iPhone 13 Pro Max', description: '128GB, Grafite', price: 5500, cost: 4500, stock: 5, category: 'Smartphones', category_id: catData[0].id, user_id: user.id },
+        { name: 'Capa Silicone iPhone 13', description: 'Transparente', price: 50, cost: 15, stock: 20, category: 'Acessórios', category_id: catData[1].id, user_id: user.id },
+        { name: 'Tela Original iPhone X', description: 'OLED', price: 450, cost: 300, stock: 3, category: 'Peças', category_id: catData[2].id, user_id: user.id }
+      ];
+      const { data: prodData, error: prodError } = await supabase.from('products').insert(products).select();
+      if (prodError) throw prodError;
+
+      // 3. Customers
+      const customers = [
+        { name: 'João Silva', email: 'joao@email.com', phone: '(11) 99999-9999', address: 'Rua A, 123', user_id: user.id },
+        { name: 'Maria Oliveira', email: 'maria@email.com', phone: '(11) 88888-8888', address: 'Av B, 456', user_id: user.id },
+        { name: 'Pedro Santos', email: 'pedro@email.com', phone: '(11) 77777-7777', address: 'Rua C, 789', user_id: user.id }
+      ];
+      const { data: custData, error: custError } = await supabase.from('customers').insert(customers).select();
+      if (custError) throw custError;
+
+      // 4. Suppliers
+      const suppliers = [
+        { name: 'Distribuidora Tech', contact: 'Carlos', phone: '(11) 5555-5555', email: 'vendas@tech.com', user_id: user.id },
+        { name: 'Peças Express', contact: 'Ana', phone: '(11) 4444-4444', email: 'contato@express.com', user_id: user.id },
+        { name: 'Acessórios Top', contact: 'Beto', phone: '(11) 3333-3333', email: 'beto@top.com', user_id: user.id }
+      ];
+      const { error: suppError } = await supabase.from('suppliers').insert(suppliers);
+      if (suppError) throw suppError;
+
+      // 5. Service Orders
+      const serviceOrders = [
+        { customer_name: 'João Silva', customer_phone: '(11) 99999-9999', customer_id: custData[0].id, device: 'iPhone 11', problem: 'Tela Quebrada', total_value: 350, status: 'pending', user_id: user.id },
+        { customer_name: 'Maria Oliveira', customer_phone: '(11) 88888-8888', customer_id: custData[1].id, device: 'Samsung S21', problem: 'Bateria não carrega', total_value: 200, status: 'in-progress', user_id: user.id },
+        { customer_name: 'Pedro Santos', customer_phone: '(11) 77777-7777', customer_id: custData[2].id, device: 'Motorola G60', problem: 'Conector de Carga', total_value: 150, status: 'completed', user_id: user.id }
+      ];
+      const { error: soError } = await supabase.from('service_orders').insert(serviceOrders);
+      if (soError) throw soError;
+
+      alert("Dados de exemplo criados com sucesso!");
+      fetchProfile();
+    } catch (error: any) {
+      console.error('Error seeding data:', error);
+      alert("Erro ao criar dados de exemplo: " + error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   if (!profile) return null;
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
-      <header>
-        <h1 className="text-2xl font-bold text-gray-900">Meu Perfil</h1>
-        <p className="text-gray-500">Gerencie suas informações pessoais e configurações.</p>
+      <header className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Meu Perfil</h1>
+          <p className="text-gray-500">Gerencie suas informações pessoais e configurações.</p>
+        </div>
+        <button
+          onClick={seedData}
+          disabled={isSaving}
+          className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          Gerar Dados de Exemplo
+        </button>
       </header>
 
       <div className="bg-white rounded-3xl shadow-xl border border-orange-100 overflow-hidden">

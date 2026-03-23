@@ -21,7 +21,7 @@ import { supabase } from '../supabase';
 import { Product, SaleItem } from '../types';
 import { formatCurrency } from '../utils/format';
 
-export default function POS({ onNavigate }: { onNavigate?: (tab: string) => void }) {
+export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab: string) => void }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [cart, setCart] = useState<SaleItem[]>([]);
@@ -55,6 +55,7 @@ export default function POS({ onNavigate }: { onNavigate?: (tab: string) => void
       const { data, error } = await supabase
         .from('cashier_sessions')
         .select('*')
+        .eq('user_id', user.id)
         .eq('status', 'open')
         .maybeSingle();
 
@@ -156,6 +157,7 @@ export default function POS({ onNavigate }: { onNavigate?: (tab: string) => void
     const { data, error } = await supabase
       .from('products')
       .select('*')
+      .eq('user_id', user.id)
       .order('name');
     
     if (error) {
@@ -169,6 +171,7 @@ export default function POS({ onNavigate }: { onNavigate?: (tab: string) => void
     const { data, error } = await supabase
       .from('categories')
       .select('*')
+      .eq('user_id', user.id)
       .order('name');
     
     if (error) {
@@ -229,7 +232,8 @@ export default function POS({ onNavigate }: { onNavigate?: (tab: string) => void
           items: cart,
           total,
           payment_method: paymentMethod,
-          // session_id: activeSession.id // Removido temporariamente para evitar erro se a coluna não existir
+          session_id: activeSession.id,
+          user_id: user.id
         });
       
       if (saleError) throw saleError;

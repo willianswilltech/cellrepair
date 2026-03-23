@@ -19,7 +19,7 @@ import { ServiceOrder, Customer } from '../types';
 import { formatCurrency, formatDate } from '../utils/format';
 import { fetchAddressByCep } from '../utils/cep';
 
-export default function ServiceOrders() {
+export default function ServiceOrders({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true);
   const [orders, setOrders] = useState<ServiceOrder[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -97,6 +97,7 @@ export default function ServiceOrders() {
     const { data, error } = await supabase
       .from('service_orders')
       .select('*')
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(100);
     
@@ -127,6 +128,7 @@ export default function ServiceOrders() {
     const { data, error } = await supabase
       .from('customers')
       .select('*')
+      .eq('user_id', user.id)
       .order('name');
     
     if (error) {
@@ -161,7 +163,8 @@ export default function ServiceOrders() {
             ...payload,
             updated_at: new Date().toISOString()
           })
-          .eq('id', editingOrder.id);
+          .eq('id', editingOrder.id)
+          .eq('user_id', user.id);
         if (submitError) throw submitError;
       } else {
         const { error: submitError } = await supabase
@@ -197,7 +200,8 @@ export default function ServiceOrders() {
       const { error: deleteError } = await supabase
         .from('service_orders')
         .delete()
-        .eq('id', orderToDelete);
+        .eq('id', orderToDelete)
+        .eq('user_id', user.id);
       
       if (deleteError) throw deleteError;
       
@@ -220,7 +224,8 @@ export default function ServiceOrders() {
           status: newStatus,
           updated_at: new Date().toISOString()
         })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('user_id', user.id);
       
       if (error) throw error;
       

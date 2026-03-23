@@ -12,7 +12,7 @@ import {
 import { supabase } from '../supabase';
 import { Category } from '../types';
 
-export default function Categories() {
+export default function Categories({ user }: { user: any }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -63,6 +63,7 @@ export default function Categories() {
       const { data, error, count } = await supabase
         .from('categories')
         .select('*', { count: 'exact' })
+        .eq('user_id', user.id)
         .order('name');
       
       if (error) throw error;
@@ -90,13 +91,15 @@ export default function Categories() {
             ...formData,
             updated_at: new Date().toISOString()
           })
-          .eq('id', editingCategory.id);
+          .eq('id', editingCategory.id)
+          .eq('user_id', user.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from('categories')
           .insert({
-            ...formData
+            ...formData,
+            user_id: user.id
           });
         if (error) throw error;
       }
@@ -122,7 +125,8 @@ export default function Categories() {
       const { error } = await supabase
         .from('categories')
         .delete()
-        .eq('id', categoryToDelete);
+        .eq('id', categoryToDelete)
+        .eq('user_id', user.id);
       
       if (error) throw error;
       

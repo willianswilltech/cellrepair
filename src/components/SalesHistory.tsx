@@ -15,7 +15,7 @@ import {
 import { supabase } from '../supabase';
 import { formatCurrency, formatDate } from '../utils/format';
 
-export default function SalesHistory({ onNavigate }: { onNavigate?: (tab: string) => void }) {
+export default function SalesHistory({ user, onNavigate }: { user: any, onNavigate?: (tab: string) => void }) {
   const [isLoading, setIsLoading] = useState(true);
   const [sales, setSales] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -47,6 +47,7 @@ export default function SalesHistory({ onNavigate }: { onNavigate?: (tab: string
     const { data, error } = await supabase
       .from('sales')
       .select('*')
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(100); // Limite para acelerar o carregamento
     
@@ -80,6 +81,7 @@ export default function SalesHistory({ onNavigate }: { onNavigate?: (tab: string
             .from('products')
             .select('stock')
             .eq('id', item.productId)
+            .eq('user_id', user.id)
             .single();
           
           if (fetchError) {
@@ -91,7 +93,8 @@ export default function SalesHistory({ onNavigate }: { onNavigate?: (tab: string
           const { error: updateError } = await supabase
             .from('products')
             .update({ stock: (product.stock || 0) + (item.quantity || 0) })
-            .eq('id', item.productId);
+            .eq('id', item.productId)
+            .eq('user_id', user.id);
           
           if (updateError) {
             console.error(`Erro ao atualizar estoque do produto ${item.productId}:`, updateError);
@@ -103,7 +106,8 @@ export default function SalesHistory({ onNavigate }: { onNavigate?: (tab: string
       const { error } = await supabase
         .from('sales')
         .delete()
-        .eq('id', saleToDelete);
+        .eq('id', saleToDelete)
+        .eq('user_id', user.id);
       
       if (error) throw error;
       

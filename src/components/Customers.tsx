@@ -18,7 +18,7 @@ import { supabase } from '../supabase';
 import { Customer } from '../types';
 import { fetchAddressByCep } from '../utils/cep';
 
-export default function Customers() {
+export default function Customers({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -76,6 +76,7 @@ export default function Customers() {
     const { data, error } = await supabase
       .from('customers')
       .select('*')
+      .eq('user_id', user.id)
       .order('name');
     
     if (error) {
@@ -97,13 +98,15 @@ export default function Customers() {
             ...formData,
             updated_at: new Date().toISOString()
           })
-          .eq('id', editingCustomer.id);
+          .eq('id', editingCustomer.id)
+          .eq('user_id', user.id);
         if (submitError) throw submitError;
       } else {
         const { error: submitError } = await supabase
           .from('customers')
           .insert({
-            ...formData
+            ...formData,
+            user_id: user.id
           });
         if (submitError) throw submitError;
       }
@@ -133,7 +136,8 @@ export default function Customers() {
       const { error: deleteError } = await supabase
         .from('customers')
         .delete()
-        .eq('id', customerToDelete);
+        .eq('id', customerToDelete)
+        .eq('user_id', user.id);
       
       if (deleteError) throw deleteError;
       

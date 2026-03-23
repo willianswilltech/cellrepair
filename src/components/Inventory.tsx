@@ -16,7 +16,7 @@ import { supabase } from '../supabase';
 import { Product, Category } from '../types';
 import { formatCurrency } from '../utils/format';
 
-export default function Inventory() {
+export default function Inventory({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -135,6 +135,7 @@ export default function Inventory() {
     const { data, error } = await supabase
       .from('products')
       .select('*')
+      .eq('user_id', user.id)
       .order('name')
       .limit(200);
     
@@ -153,6 +154,7 @@ export default function Inventory() {
     const { data, error } = await supabase
       .from('categories')
       .select('*')
+      .eq('user_id', user.id)
       .order('name');
     
     if (error) {
@@ -198,6 +200,7 @@ export default function Inventory() {
       const { data: existing } = await supabase
         .from('categories')
         .select('*')
+        .eq('user_id', user.id)
         .ilike('name', newCategoryName.trim())
         .maybeSingle();
 
@@ -215,7 +218,10 @@ export default function Inventory() {
 
       const { data, error } = await supabase
         .from('categories')
-        .insert([{ name: newCategoryName.trim() }])
+        .insert([{ 
+          name: newCategoryName.trim(),
+          user_id: user.id
+        }])
         .select()
         .single();
         
@@ -276,7 +282,8 @@ export default function Inventory() {
         stock: formData.stock,
         category: currentCategoryName,
         category_id: currentCategoryId || null,
-        barcode: formData.barcode
+        barcode: formData.barcode,
+        user_id: user.id
       };
 
       if (editingProduct) {
@@ -324,7 +331,8 @@ export default function Inventory() {
       const { error: deleteError } = await supabase
         .from('products')
         .delete()
-        .eq('id', productToDelete);
+        .eq('id', productToDelete)
+        .eq('user_id', user.id);
       
       if (deleteError) {
         console.error('Erro retornado pelo Supabase:', deleteError);

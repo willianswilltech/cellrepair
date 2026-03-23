@@ -18,13 +18,15 @@ import {
   Wrench, 
   DollarSign,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  AlertTriangle
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { formatCurrency } from '../utils/format';
 
-export default function Dashboard() {
+export default function Dashboard({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({
     totalSales: 0,
     totalOrders: 0,
@@ -45,17 +47,25 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
+      setError(null);
       try {
         // Usando count: 'exact' e head: true para não baixar os dados, apenas contar
         const [salesRes, ordersRes, productsRes, lowStockRes] = await Promise.all([
-          supabase.from('sales').select('total'),
-          supabase.from('service_orders').select('*', { count: 'exact', head: true }),
-          supabase.from('products').select('*', { count: 'exact', head: true }),
-          supabase.from('products').select('*', { count: 'exact', head: true }).lte('stock', 5)
+          supabase.from('sales').select('total').eq('user_id', user.id),
+          supabase.from('service_orders').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+          supabase.from('products').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+          supabase.from('products').select('*', { count: 'exact', head: true }).eq('user_id', user.id).lte('stock', 5)
         ]);
 
         if (salesRes.error || ordersRes.error || productsRes.error || lowStockRes.error) {
-          console.error('Error fetching dashboard data');
+          const firstError = salesRes.error || ordersRes.error || productsRes.error || lowStockRes.error;
+          console.error('Error fetching dashboard data:', {
+            salesError: salesRes.error,
+            ordersError: ordersRes.error,
+            productsError: productsRes.error,
+            lowStockError: lowStockRes.error
+          });
+          setError(`Erro ao buscar dados: ${firstError?.message || 'Erro desconhecido'}. Verifique se as tabelas do banco de dados foram configuradas corretamente.`);
           return;
         }
 
@@ -68,6 +78,9 @@ export default function Dashboard() {
           lowStock: lowStockRes.count || 0,
           revenue
         });
+      } catch (err: any) {
+        console.error('Fatal error fetching dashboard data:', err);
+        setError(`Erro fatal: ${err.message || 'Erro desconhecido'}`);
       } finally {
         setIsLoading(false);
       }
@@ -79,6 +92,24 @@ export default function Dashboard() {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 p-6 rounded-2xl text-center space-y-4">
+        <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+          <AlertTriangle className="w-8 h-8 text-red-600" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900">Erro ao Carregar Dashboard</h2>
+        <p className="text-gray-600">{error}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-xl font-semibold transition-all"
+        >
+          Tentar Novamente
+        </button>
       </div>
     );
   }

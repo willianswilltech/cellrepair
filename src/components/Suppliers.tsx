@@ -16,7 +16,7 @@ import {
 import { supabase } from '../supabase';
 import { Supplier } from '../types';
 
-export default function Suppliers() {
+export default function Suppliers({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -58,6 +58,7 @@ export default function Suppliers() {
     const { data, error } = await supabase
       .from('suppliers')
       .select('*')
+      .eq('user_id', user.id)
       .order('name');
     
     if (error) {
@@ -77,13 +78,15 @@ export default function Suppliers() {
             ...formData,
             updated_at: new Date().toISOString()
           })
-          .eq('id', editingSupplier.id);
+          .eq('id', editingSupplier.id)
+          .eq('user_id', user.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from('suppliers')
           .insert({
-            ...formData
+            ...formData,
+            user_id: user.id
           });
         if (error) throw error;
       }
@@ -110,7 +113,8 @@ export default function Suppliers() {
       const { error } = await supabase
         .from('suppliers')
         .delete()
-        .eq('id', supplierToDelete);
+        .eq('id', supplierToDelete)
+        .eq('user_id', user.id);
       
       if (error) throw error;
       

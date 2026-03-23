@@ -85,14 +85,26 @@ export default function App() {
           }
         });
         if (error) throw error;
+        
         if (data.user) {
           // Create profile
-          await supabase.from('profiles').insert({
+          const { error: profileError } = await supabase.from('profiles').insert({
             id: data.user.id,
             name: displayName,
             email: email,
             role: 'admin'
           });
+          
+          if (profileError) {
+            console.error('Error creating profile:', profileError);
+          }
+
+          if (data.session) {
+            setUser(data.user);
+          } else {
+            setAuthError('Conta criada! Por favor, verifique seu e-mail para confirmar o cadastro (se habilitado no Supabase) antes de fazer login.');
+            setIsLogin(true);
+          }
         }
       }
     } catch (error: any) {
@@ -329,15 +341,15 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 overflow-auto p-4 lg:p-8">
         <div className="max-w-7xl mx-auto">
-          {activeTab === 'dashboard' && <Dashboard />}
-          {activeTab === 'inventory' && <Inventory />}
-          {activeTab === 'orders' && <ServiceOrders />}
-          {activeTab === 'pos' && <POS onNavigate={setActiveTab} />}
-          {activeTab === 'sales' && <SalesHistory onNavigate={setActiveTab} />}
+          {activeTab === 'dashboard' && <Dashboard user={user} />}
+          {activeTab === 'inventory' && <Inventory user={user} />}
+          {activeTab === 'orders' && <ServiceOrders user={user} />}
+          {activeTab === 'pos' && <POS user={user} onNavigate={setActiveTab} />}
+          {activeTab === 'sales' && <SalesHistory user={user} onNavigate={setActiveTab} />}
           {activeTab === 'cashier' && <Cashier user={user} />}
-          {activeTab === 'customers' && <Customers />}
-          {activeTab === 'categories' && <Categories />}
-          {activeTab === 'suppliers' && <Suppliers />}
+          {activeTab === 'customers' && <Customers user={user} />}
+          {activeTab === 'categories' && <Categories user={user} />}
+          {activeTab === 'suppliers' && <Suppliers user={user} />}
           {activeTab === 'profile' && <Profile user={user} />}
         </div>
       </main>
