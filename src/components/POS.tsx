@@ -34,21 +34,6 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
-  useEffect(() => {
-    checkActiveSession();
-
-    const sessionChannel = supabase
-      .channel('pos_session_check')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cashier_sessions' }, () => {
-        checkActiveSession();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(sessionChannel);
-    };
-  }, []);
-
   const checkActiveSession = async () => {
     setIsCheckingSession(true);
     try {
@@ -67,6 +52,163 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
       setIsCheckingSession(false);
     }
   };
+
+  const handleScan = (code: string) => {
+    const product = products.find(p => p.barcode === code || p.id === code);
+    if (product) {
+      addToCart(product);
+    } else {
+      alert(`Produto com código ${code} não encontrado.`);
+    }
+  };
+
+  const fetchProducts = async () => {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('name');
+    
+    if (error) {
+      console.error('Error fetching products:', error);
+    } else {
+      setProducts(data || []);
+    }
+  };
+
+  const fetchCategories = async () => {
+    const { data, error } = await supabase
+      .from('categories')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('name');
+    
+    if (error) {
+      console.error('Error fetching categories:', error);
+    } else {
+      setCategories(data || []);
+    }
+  };
+
+  const addToCart = (product: Product) => {
+    const existing = cart.find(item => item.productId === product.id);
+    if (existing) {
+      setCart(cart.map(item => 
+        item.productId === product.id 
+          ? { ...item, quantity: item.quantity + 1 } 
+          : item
+      ));
+    } else {
+      setCart([...cart, {
+        productId: product.id!,
+        name: product.name,
+        price: product.price,
+        quantity: 1
+      }]);
+    }
+  };
+
+  const updateQuantity = (productId: string, delta: number) => {
+    setCart(cart.map(item => {
+      if (item.productId === productId) {
+        const newQty = Math.max(1, item.quantity + delta);
+        return { ...item, quantity: newQty };
+      }
+      return item;
+    }));
+  };
+
+  const removeFromCart = (productId: string) => {
+    setCart(cart.filter(item => item.productId !== productId));
+  };
+
+  const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
+  const handleCheckout = React.useCallback(async () => {
+    if (cart.length === 0 || isProcessing) return;
+    
+    if (!activeSession) {
+      alert("⚠️ CAIXA FECHADO: Você não pode realizar vendas com o caixa fechado. Por favor, abra o caixa no módulo 'Caixa / Financeiro' primeiro.");
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      console.log("Iniciando checkout...", { cart, total, paymentMethod, sessionId: activeSession.id, userId: user.id });
+      
+      // Step 1: Create Sale record
+      const { data: saleData, error: saleError } = await supabase
+        .from('sales')
+        .insert({
+          items: cart,
+          total,
+          payment_method: paymentMethod,
+          session_id: activeSession.id,
+          user_id: user.id
+        })
+        .select();
+      
+      if (saleError) {
+        console.error("Erro ao inserir venda:", saleError);
+        throw new Error(`[PASSO 1: REGISTRO] Erro ao registrar venda: ${saleError.message} (Código: ${saleError.code})`);
+      }
+
+      console.log("Venda registrada com sucesso:", saleData);
+
+      // Step 2: Update Stock
+      for (const item of cart) {
+        console.log(`Atualizando estoque para produto ${item.productId}...`);
+        const { data: product, error: fetchError } = await supabase
+          .from('products')
+          .select('stock')
+          .eq('id', item.productId)
+          .eq('user_id', user.id)
+          .single();
+        
+        if (fetchError) {
+          console.error(`Erro ao buscar estoque do produto ${item.productId}:`, fetchError);
+          throw new Error(`[PASSO 2: BUSCA ESTOQUE] Erro ao buscar estoque do produto ${item.name}: ${fetchError.message}`);
+        }
+
+        const newStock = (product.stock || 0) - (item.quantity || 0);
+        const { error: updateError } = await supabase
+          .from('products')
+          .update({ stock: newStock })
+          .eq('id', item.productId)
+          .eq('user_id', user.id);
+        
+        if (updateError) {
+          console.error(`Erro ao atualizar estoque do produto ${item.productId}:`, updateError);
+          throw new Error(`[PASSO 2: ATUALIZA ESTOQUE] Erro ao atualizar estoque do produto ${item.name}: ${updateError.message}`);
+        }
+        console.log(`Estoque atualizado para ${item.name}: ${newStock}`);
+      }
+
+      setCart([]);
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    } catch (error: any) {
+      console.error("Erro detalhado no checkout:", error);
+      alert("❌ Erro ao finalizar venda:\n\n" + (error.message || "Erro desconhecido. Verifique o console para mais detalhes."));
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [cart, total, paymentMethod, activeSession, user, isProcessing]);
+
+  useEffect(() => {
+    checkActiveSession();
+
+    const sessionChannel = supabase
+      .channel('pos_session_check')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cashier_sessions' }, () => {
+        checkActiveSession();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(sessionChannel);
+    };
+  }, []);
 
   useEffect(() => {
     if (searchTerm.trim().length >= 3) {
@@ -144,128 +286,29 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
     };
   }, [isScanning]);
 
-  const handleScan = (code: string) => {
-    const product = products.find(p => p.barcode === code || p.id === code);
-    if (product) {
-      addToCart(product);
-    } else {
-      alert(`Produto com código ${code} não encontrado.`);
-    }
-  };
-
-  const fetchProducts = async () => {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('name');
-    
-    if (error) {
-      console.error('Error fetching products:', error);
-    } else {
-      setProducts(data || []);
-    }
-  };
-
-  const fetchCategories = async () => {
-    const { data, error } = await supabase
-      .from('categories')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('name');
-    
-    if (error) {
-      console.error('Error fetching categories:', error);
-    } else {
-      setCategories(data || []);
-    }
-  };
-
-  const addToCart = (product: Product) => {
-    const existing = cart.find(item => item.productId === product.id);
-    if (existing) {
-      setCart(cart.map(item => 
-        item.productId === product.id 
-          ? { ...item, quantity: item.quantity + 1 } 
-          : item
-      ));
-    } else {
-      setCart([...cart, {
-        productId: product.id!,
-        name: product.name,
-        price: product.price,
-        quantity: 1
-      }]);
-    }
-  };
-
-  const updateQuantity = (productId: string, delta: number) => {
-    setCart(cart.map(item => {
-      if (item.productId === productId) {
-        const newQty = Math.max(1, item.quantity + delta);
-        return { ...item, quantity: newQty };
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Prevent default browser behavior for F keys we use
+      if (['F1', 'F2', 'F3', 'F4', 'F10'].includes(e.key)) {
+        e.preventDefault();
       }
-      return item;
-    }));
-  };
 
-  const removeFromCart = (productId: string) => {
-    setCart(cart.filter(item => item.productId !== productId));
-  };
-
-  const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-
-  const handleCheckout = async () => {
-    if (cart.length === 0) return;
-    
-    if (!activeSession) {
-      alert("⚠️ CAIXA FECHADO: Você não pode realizar vendas com o caixa fechado. Por favor, abra o caixa no módulo 'Caixa / Financeiro' primeiro.");
-      return;
-    }
-
-    setIsProcessing(true);
-    try {
-      // Create Sale record
-      const { error: saleError } = await supabase
-        .from('sales')
-        .insert({
-          items: cart,
-          total,
-          payment_method: paymentMethod,
-          session_id: activeSession.id,
-          user_id: user.id
-        });
+      if (e.key === 'F1') setPaymentMethod('cash');
+      if (e.key === 'F2') setPaymentMethod('credit_card');
+      if (e.key === 'F3') setPaymentMethod('debit_card');
+      if (e.key === 'F4') setPaymentMethod('pix');
       
-      if (saleError) throw saleError;
-
-      // Update Stock
-      for (const item of cart) {
-        const { data: product, error: fetchError } = await supabase
-          .from('products')
-          .select('stock')
-          .eq('id', item.productId)
-          .single();
-        
-        if (fetchError) throw fetchError;
-
-        const { error: updateError } = await supabase
-          .from('products')
-          .update({ stock: (product.stock || 0) - (item.quantity || 0) })
-          .eq('id', item.productId);
-        
-        if (updateError) throw updateError;
+      if (e.key === 'F10') {
+        if (cart.length > 0 && !isProcessing && activeSession) {
+          handleCheckout();
+        }
       }
+    };
 
-      setCart([]);
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
-    } catch (error: any) {
-      console.error("Erro no checkout:", error);
-      alert("Erro ao finalizar venda: " + (error.message || "Erro desconhecido. Verifique sua conexão e tente novamente."));
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [cart, isProcessing, activeSession, paymentMethod, handleCheckout]);
+
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && searchTerm.trim()) {
@@ -431,22 +474,27 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Forma de Pagamento</p>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { id: 'cash', label: 'Dinheiro', icon: Banknote },
-                { id: 'credit_card', label: 'Crédito', icon: CreditCard },
-                { id: 'debit_card', label: 'Débito', icon: CreditCard },
-                { id: 'pix', label: 'PIX', icon: QrCode },
+                { id: 'cash', label: 'Dinheiro', icon: Banknote, key: 'F1' },
+                { id: 'credit_card', label: 'Crédito', icon: CreditCard, key: 'F2' },
+                { id: 'debit_card', label: 'Débito', icon: CreditCard, key: 'F3' },
+                { id: 'pix', label: 'PIX', icon: QrCode, key: 'F4' },
               ].map((method) => (
                 <button
                   key={method.id}
                   onClick={() => setPaymentMethod(method.id as any)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                  className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
                     paymentMethod === method.id 
                       ? 'bg-orange-600 text-white border-orange-600 shadow-md' 
                       : 'bg-white text-gray-600 border-orange-100 hover:border-orange-300'
                   }`}
                 >
-                  <method.icon className="w-4 h-4" />
-                  {method.label}
+                  <div className="flex items-center gap-2">
+                    <method.icon className="w-4 h-4" />
+                    {method.label}
+                  </div>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded ${paymentMethod === method.id ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                    {method.key}
+                  </span>
                 </button>
               ))}
             </div>
@@ -460,14 +508,17 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
           <button
             onClick={handleCheckout}
             disabled={cart.length === 0 || isProcessing}
-            className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 text-white font-bold py-4 rounded-2xl shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-2"
+            className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 text-white font-bold py-4 rounded-2xl shadow-lg shadow-orange-200 transition-all flex flex-col items-center justify-center gap-1"
           >
             {isProcessing ? (
               <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
             ) : (
               <>
-                <CheckCircle2 className="w-6 h-6" />
-                Finalizar Venda
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-6 h-6" />
+                  Finalizar Venda
+                </div>
+                <span className="text-[10px] opacity-80 font-medium">Atalho: F10</span>
               </>
             )}
           </button>

@@ -12,7 +12,10 @@ import {
   Smartphone,
   MoreVertical,
   Edit2,
-  Trash2
+  Trash2,
+  Banknote,
+  CreditCard,
+  QrCode
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { ServiceOrder, Customer } from '../types';
@@ -25,7 +28,10 @@ export default function ServiceOrders({ user }: { user: any }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
+  const [deliveringOrder, setDeliveringOrder] = useState<ServiceOrder | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cash' | 'credit_card' | 'debit_card' | 'pix'>('cash');
   const [searchTerm, setSearchTerm] = useState('');
 
   const [editingOrder, setEditingOrder] = useState<ServiceOrder | null>(null);
@@ -33,7 +39,7 @@ export default function ServiceOrders({ user }: { user: any }) {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (isModalOpen || isDeleteModalOpen) {
+    if (isModalOpen || isDeleteModalOpen || isDeliveryModalOpen) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'unset';
@@ -41,7 +47,7 @@ export default function ServiceOrders({ user }: { user: any }) {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [isModalOpen, isDeleteModalOpen]);
+  }, [isModalOpen, isDeleteModalOpen, isDeliveryModalOpen]);
 
   const [formData, setFormData] = useState({
     customerId: '',
@@ -216,14 +222,20 @@ export default function ServiceOrders({ user }: { user: any }) {
     }
   };
 
-  const updateStatus = async (id: string, newStatus: ServiceOrder['status']) => {
+  const updateStatus = async (id: string, newStatus: ServiceOrder['status'], paymentMethod?: string) => {
     try {
+      const updateData = {
+        status: newStatus,
+        updated_at: new Date().toISOString()
+      };
+
+      if (paymentMethod) {
+        updateData.payment_method = paymentMethod;
+      }
+
       const { error } = await supabase
         .from('service_orders')
-        .update({
-          status: newStatus,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', id)
         .eq('user_id', user.id);
       
@@ -233,12 +245,62 @@ export default function ServiceOrders({ user }: { user: any }) {
       // Feedback visual opcional
       if (newStatus === 'delivered') {
         alert("Ordem de Serviço entregue e finalizada com sucesso!");
+        setIsDeliveryModalOpen(false);
+        setDeliveringOrder(null);
       }
     } catch (error: any) {
       console.error('Error updating status:', error);
       alert('Erro ao atualizar status: ' + (error.message || 'Verifique suas permissões.'));
     }
   };
+
+  const handleDeliverClick = (order: ServiceOrder) => {
+    setDeliveringOrder(order);
+    setIsDeliveryModalOpen(true);
+  };
+
+  const confirmDelivery = async () => {
+    if (!deliveringOrder) return;
+    await updateStatus(deliveringOrder.id!, 'delivered', selectedPaymentMethod);
+  };
+
+  // Keyboard shortcuts for delivery modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isDeliveryModalOpen) return;
+
+      switch (e.key) {
+        case 'F1':
+          e.preventDefault();
+          setSelectedPaymentMethod('cash');
+          break;
+        case 'F2':
+          e.preventDefault();
+          setSelectedPaymentMethod('credit_card');
+          break;
+        case 'F3':
+          e.preventDefault();
+          setSelectedPaymentMethod('debit_card');
+          break;
+        case 'F4':
+          e.preventDefault();
+          setSelectedPaymentMethod('pix');
+          break;
+        case 'F10':
+          e.preventDefault();
+          confirmDelivery();
+          break;
+        case 'Escape':
+          e.preventDefault();
+          setIsDeliveryModalOpen(false);
+          setDeliveringOrder(null);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isDeliveryModalOpen, selectedPaymentMethod, deliveringOrder]);
 
   const getStatusBadge = (status: ServiceOrder['status']) => {
     const styles = {
@@ -390,7 +452,7 @@ export default function ServiceOrders({ user }: { user: any }) {
                       <CheckCircle2 className="w-5 h-5" />
                     </button>
                     <button 
-                      onClick={() => updateStatus(order.id!, 'delivered')}
+                      onClick={() => handleDeliverClick(order)}
                       className="p-2 text-purple-600 hover:bg-purple-50 rounded-xl transition-all"
                       title="Entregar ao Cliente"
                     >
@@ -612,6 +674,75 @@ export default function ServiceOrders({ user }: { user: any }) {
                 className="flex-1 px-4 py-2 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 shadow-lg shadow-red-200 transition-all"
               >
                 Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Entrega / Pagamento */}
+      {isDeliveryModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-6">
+            <div className="text-center space-y-2">
+              <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+                <Truck className="w-8 h-8 text-purple-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Entregar Aparelho</h3>
+              <p className="text-gray-500">Selecione a forma de pagamento para finalizar a OS de <span className="font-bold text-gray-900">{deliveringOrder?.customerName}</span>.</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-4 bg-orange-50 rounded-2xl flex justify-between items-center">
+                <span className="text-gray-600 font-medium">Valor a Receber:</span>
+                <span className="text-2xl font-black text-orange-600">{formatCurrency(deliveringOrder?.totalValue || 0)}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { id: 'cash', label: 'Dinheiro', icon: Banknote, key: 'F1' },
+                  { id: 'credit_card', label: 'Crédito', icon: CreditCard, key: 'F2' },
+                  { id: 'debit_card', label: 'Débito', icon: CreditCard, key: 'F3' },
+                  { id: 'pix', label: 'PIX', icon: QrCode, key: 'F4' },
+                ].map((method) => (
+                  <button
+                    key={method.id}
+                    onClick={() => setSelectedPaymentMethod(method.id as any)}
+                    className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all ${
+                      selectedPaymentMethod === method.id 
+                        ? 'bg-orange-600 text-white border-orange-600 shadow-lg' 
+                        : 'bg-white text-gray-600 border-orange-100 hover:border-orange-300'
+                    }`}
+                  >
+                    <method.icon className="w-6 h-6" />
+                    <div className="text-center">
+                      <span className="text-sm font-bold block">{method.label}</span>
+                      <span className={`text-[10px] font-medium ${selectedPaymentMethod === method.id ? 'text-orange-100' : 'text-gray-400'}`}>
+                        Atalho: {method.key}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button 
+                onClick={() => {
+                  setIsDeliveryModalOpen(false);
+                  setDeliveringOrder(null);
+                }}
+                className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-all flex flex-col items-center"
+              >
+                <span>Cancelar</span>
+                <span className="text-[10px] text-gray-400 font-normal">Atalho: Esc</span>
+              </button>
+              <button 
+                onClick={confirmDelivery}
+                className="flex-1 px-4 py-3 bg-orange-600 text-white font-semibold rounded-xl hover:bg-orange-700 shadow-lg shadow-orange-200 transition-all flex flex-col items-center"
+              >
+                <span>Confirmar Entrega</span>
+                <span className="text-[10px] text-orange-100 font-normal">Atalho: F10</span>
               </button>
             </div>
           </div>

@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS service_orders (
   observations TEXT,
   cep TEXT,
   address TEXT,
+  payment_method TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
 );
