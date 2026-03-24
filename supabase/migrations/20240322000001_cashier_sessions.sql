@@ -7,6 +7,9 @@ CREATE TABLE IF NOT EXISTS cashier_sessions (
   expected_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
   actual_amount DECIMAL(10,2),
   difference DECIMAL(10,2),
+  total_sales DECIMAL(10,2) DEFAULT 0,
+  total_suprimentos DECIMAL(10,2) DEFAULT 0,
+  total_sangrias DECIMAL(10,2) DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'open',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
 );

@@ -50,6 +50,7 @@ export default function Cashier({ user }: { user: any }) {
   const [loading, setLoading] = useState(true);
   const [isOpeningModal, setIsOpeningModal] = useState(false);
   const [isClosingModal, setIsClosingModal] = useState(false);
+  const [selectedSessionDetails, setSelectedSessionDetails] = useState<any>(null);
   const [isMovementModal, setIsMovementModal] = useState(false);
   const [movementType, setMovementType] = useState('sangria');
   const [formData, setFormData] = useState({ amount: '', description: '', payment_method: 'cash' });
@@ -85,8 +86,10 @@ export default function Cashier({ user }: { user: any }) {
     return parseInt(digits) / 100 || 0;
   };
   
+  const [showFinanceDetails, setShowFinanceDetails] = useState(false);
+  
   const [dateRange, setDateRange] = useState({
-    start: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
+    start: format(new Date(), 'yyyy-MM-dd'),
     end: format(new Date(), 'yyyy-MM-dd')
   });
 
@@ -302,6 +305,8 @@ export default function Cashier({ user }: { user: any }) {
     submittingRef.current = true;
     try {
       const actual = parseCurrencyInput(closingAmount);
+      const { total: totalSales } = calculateSessionSales();
+      const { suprimento: totalSuprimentos, sangria: totalSangrias } = sessionTotals;
       const expected = calculateExpectedBalance();
       const diff = actual - expected;
 
@@ -312,6 +317,9 @@ export default function Cashier({ user }: { user: any }) {
           actual_amount: actual,
           expected_amount: expected,
           difference: diff,
+          total_sales: totalSales,
+          total_suprimentos: totalSuprimentos,
+          total_sangrias: totalSangrias,
           status: 'closed'
         })
         .eq('id', activeSession.id);
@@ -450,6 +458,8 @@ export default function Cashier({ user }: { user: any }) {
   ].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
 
   const totalRevenue = allTransactions.reduce((acc, curr) => acc + (curr.total || 0), 0);
+  const totalSalesOnly = filteredSales.reduce((acc, curr) => acc + (curr.total || 0), 0);
+  const totalOrdersOnly = filteredOrders.reduce((acc, curr) => acc + (curr.totalValue || 0), 0);
   
   const filteredMovements = movements.filter(m => {
     const date = parseISO(m.created_at);
@@ -525,6 +535,21 @@ export default function Cashier({ user }: { user: any }) {
             </button>
           </div>
 
+          <button 
+            onClick={() => setShowFinanceDetails(!showFinanceDetails)}
+            className={`px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 transition-all ${showFinanceDetails ? 'bg-orange-100 text-orange-700' : 'bg-white text-gray-600 border border-orange-100 shadow-sm hover:bg-orange-50'}`}
+          >
+            <Filter className="w-4 h-4" />
+            {showFinanceDetails ? 'Ocultar Filtros' : 'Filtros e Resumo'}
+          </button>
+
+          <div className="hidden sm:flex items-center gap-4 px-4 py-2 bg-white rounded-xl border border-orange-100 shadow-sm">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-gray-400 uppercase">Receita Total</span>
+              <span className="text-sm font-black text-orange-600">{formatCurrency(totalRevenue)}</span>
+            </div>
+          </div>
+
           {activeSession ? (
             <>
               <button 
@@ -559,28 +584,45 @@ export default function Cashier({ user }: { user: any }) {
             </button>
           )}
           
-          <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-orange-100 shadow-sm">
+      </div>
+    </header>
+
+    {showFinanceDetails && (
+      <div className="bg-white p-4 rounded-3xl border border-orange-100 shadow-sm animate-in fade-in slide-in-from-top-4">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-orange-600" />
+            <span className="text-sm font-bold text-gray-700">Período Selecionado:</span>
+          </div>
+          <div className="flex items-center gap-2 bg-orange-50 p-1 rounded-2xl border border-orange-100">
             <div className="flex items-center gap-2 px-3">
-              <Calendar className="w-4 h-4 text-orange-600" />
               <input 
                 type="date" 
-                className="text-sm font-medium outline-none border-none bg-transparent"
+                className="text-sm font-bold outline-none border-none bg-transparent text-orange-900"
                 value={dateRange.start}
                 onChange={e => setDateRange({...dateRange, start: e.target.value})}
               />
             </div>
-            <span className="text-gray-300">|</span>
+            <span className="text-orange-200">|</span>
             <div className="flex items-center gap-2 px-3">
               <input 
                 type="date" 
-                className="text-sm font-medium outline-none border-none bg-transparent"
+                className="text-sm font-bold outline-none border-none bg-transparent text-orange-900"
                 value={dateRange.end}
                 onChange={e => setDateRange({...dateRange, end: e.target.value})}
               />
             </div>
+            <button 
+              onClick={() => fetchData()}
+              className="bg-orange-600 text-white p-2 rounded-xl hover:bg-orange-700 transition-colors"
+              title="Atualizar dados"
+            >
+              <Search className="w-4 h-4" />
+            </button>
           </div>
         </div>
-      </header>
+      </div>
+    )}
 
       {error && (
         <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-4">
@@ -617,186 +659,222 @@ export default function Cashier({ user }: { user: any }) {
               </div>
               
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 w-full lg:w-auto">
-                <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
-                  <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Saldo Inicial</p>
-                  <p className="text-lg font-black text-orange-900">{formatCurrency(activeSession.initial_amount)}</p>
-                </div>
-                <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
-                  <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vendas (Cash)</p>
-                  <p className="text-lg font-black text-orange-900">{formatCurrency(calculateSessionSales().cash)}</p>
-                </div>
-                <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
-                  <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vendas (PIX)</p>
-                  <p className="text-lg font-black text-orange-900">{formatCurrency(calculateSessionSales().pix)}</p>
-                </div>
-                <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
-                  <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Suprimentos (+)</p>
-                  <p className="text-lg font-black text-emerald-600">{formatCurrency(sessionTotals.suprimento)}</p>
-                </div>
-                <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
-                  <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Sangrias (-)</p>
-                  <p className="text-lg font-black text-red-600">{formatCurrency(sessionTotals.sangria)}</p>
-                </div>
-                <div className="text-center bg-orange-100 p-3 rounded-2xl border border-orange-200 col-span-2 md:col-span-1">
-                  <p className="text-orange-600 text-[10px] font-bold uppercase tracking-wider mb-1">Dinheiro em Caixa</p>
-                  <p className="text-xl font-black text-orange-900">{formatCurrency(calculateExpectedBalance())}</p>
-                </div>
+                {showFinanceDetails ? (
+                  <>
+                    <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
+                      <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Saldo Inicial</p>
+                      <p className="text-lg font-black text-orange-900">{formatCurrency(activeSession.initial_amount)}</p>
+                    </div>
+                    <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
+                      <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vendas (Cash)</p>
+                      <p className="text-lg font-black text-orange-900">{formatCurrency(calculateSessionSales().cash)}</p>
+                    </div>
+                    <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
+                      <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vendas (PIX)</p>
+                      <p className="text-lg font-black text-orange-900">{formatCurrency(calculateSessionSales().pix)}</p>
+                    </div>
+                    <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
+                      <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Suprimentos (+)</p>
+                      <p className="text-lg font-black text-emerald-600">{formatCurrency(sessionTotals.suprimento)}</p>
+                    </div>
+                    <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
+                      <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Sangrias (-)</p>
+                      <p className="text-lg font-black text-red-600">{formatCurrency(sessionTotals.sangria)}</p>
+                    </div>
+                    <div className="text-center bg-orange-100 p-3 rounded-2xl border border-orange-200 col-span-2 md:col-span-1">
+                      <p className="text-orange-600 text-[10px] font-bold uppercase tracking-wider mb-1">Dinheiro em Caixa</p>
+                      <p className="text-xl font-black text-orange-900">{formatCurrency(calculateExpectedBalance())}</p>
+                    </div>
+                  </>
+                ) : (
+                  <button 
+                    onClick={() => setShowFinanceDetails(true)}
+                    className="col-span-full py-4 px-8 bg-white rounded-2xl border border-orange-100 text-orange-600 font-bold hover:bg-orange-50 transition-colors flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    <TrendingUp className="w-5 h-5" />
+                    Ver Totais da Sessão Atual
+                  </button>
+                )}
               </div>
             </div>
           )}
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-            <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="bg-orange-100 p-3 rounded-2xl">
-                  <DollarSign className="w-6 h-6 text-orange-600" />
-                </div>
-              </div>
-              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Receita Total</p>
-              <h3 className="text-xl font-black text-gray-900">{formatCurrency(totalRevenue)}</h3>
-            </div>
-
-            <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="bg-emerald-100 p-3 rounded-2xl">
-                  <Plus className="w-6 h-6 text-emerald-600" />
-                </div>
-              </div>
-              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Suprimentos</p>
-              <h3 className="text-xl font-black text-emerald-600">{formatCurrency(periodMovements.suprimento)}</h3>
-            </div>
-
-            <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="bg-red-100 p-3 rounded-2xl">
-                  <Minus className="w-6 h-6 text-red-600" />
-                </div>
-              </div>
-              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Sangrias</p>
-              <h3 className="text-xl font-black text-red-600">{formatCurrency(periodMovements.sangria)}</h3>
-            </div>
-
-            <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="bg-blue-100 p-3 rounded-2xl">
-                  <Banknote className="w-6 h-6 text-blue-600" />
-                </div>
-              </div>
-              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Dinheiro</p>
-              <h3 className="text-xl font-black text-gray-900">{formatCurrency(totalsByMethod['cash'] || 0)}</h3>
-            </div>
-
-            <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="bg-purple-100 p-3 rounded-2xl">
-                  <CreditCard className="w-6 h-6 text-purple-600" />
-                </div>
-              </div>
-              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Cartão</p>
-              <h3 className="text-xl font-black text-gray-900">
-                {formatCurrency((totalsByMethod['credit_card'] || 0) + (totalsByMethod['debit_card'] || 0))}
-              </h3>
-            </div>
-
-            <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="bg-emerald-100 p-3 rounded-2xl">
-                  <QrCode className="w-6 h-6 text-emerald-600" />
-                </div>
-              </div>
-              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">PIX</p>
-              <h3 className="text-xl font-black text-gray-900">{formatCurrency(totalsByMethod['pix'] || 0)}</h3>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Main Chart */}
-            <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-bold text-gray-900">Desempenho de Vendas</h3>
-                <div className="flex items-center gap-4 text-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                    <span className="text-gray-500">Receita Diária</span>
+          {showFinanceDetails && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4 animate-in fade-in zoom-in-95 duration-300">
+              <div className="bg-orange-600 p-6 rounded-3xl border border-orange-500 shadow-lg shadow-orange-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-white/20 p-3 rounded-2xl">
+                    <DollarSign className="w-6 h-6 text-white" />
                   </div>
                 </div>
+                <p className="text-orange-100 text-[10px] font-bold uppercase tracking-wider">Receita Total</p>
+                <h3 className="text-xl font-black text-white">{formatCurrency(totalRevenue)}</h3>
               </div>
-              
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ea580c" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#ea580c" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis 
-                      dataKey="date" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{fill: '#94a3b8', fontSize: 12}}
-                      dy={10}
-                    />
-                    <YAxis 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{fill: '#94a3b8', fontSize: 12}}
-                      tickFormatter={(value) => `R$${value}`}
-                    />
-                    <Tooltip 
-                      contentStyle={{backgroundColor: '#fff', borderRadius: '16px', border: '1px solid #fed7aa', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
-                      formatter={(value) => [formatCurrency(value), 'Total']}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="total" 
-                      stroke="#ea580c" 
-                      strokeWidth={3}
-                      fillOpacity={1} 
-                      fill="url(#colorTotal)" 
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
 
-            {/* Payment Methods Chart */}
-            <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
-              <h3 className="font-bold text-gray-900 mb-6">Métodos de Pagamento</h3>
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={[
-                    { name: 'Dinheiro', value: totalsByMethod['cash'] || 0 },
-                    { name: 'Crédito', value: totalsByMethod['credit_card'] || 0 },
-                    { name: 'Débito', value: totalsByMethod['debit_card'] || 0 },
-                    { name: 'PIX', value: totalsByMethod['pix'] || 0 },
-                  ]}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis 
-                      dataKey="name" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{fill: '#94a3b8', fontSize: 11}}
-                    />
-                    <YAxis hide />
-                    <Tooltip 
-                      cursor={{fill: '#fff7ed'}}
-                      contentStyle={{backgroundColor: '#fff', borderRadius: '16px', border: '1px solid #fed7aa'}}
-                      formatter={(value) => [formatCurrency(value), 'Total']}
-                    />
-                    <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-                      {[0, 1, 2, 3].map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-orange-100 p-3 rounded-2xl">
+                    <TrendingUp className="w-6 h-6 text-orange-600" />
+                  </div>
+                </div>
+                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Vendas PDV</p>
+                <h3 className="text-xl font-black text-gray-900">{formatCurrency(totalSalesOnly)}</h3>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-blue-100 p-3 rounded-2xl">
+                    <History className="w-6 h-6 text-blue-600" />
+                  </div>
+                </div>
+                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Ordens de Serviço</p>
+                <h3 className="text-xl font-black text-gray-900">{formatCurrency(totalOrdersOnly)}</h3>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-emerald-100 p-3 rounded-2xl">
+                    <Plus className="w-6 h-6 text-emerald-600" />
+                  </div>
+                </div>
+                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Suprimentos</p>
+                <h3 className="text-xl font-black text-emerald-600">{formatCurrency(periodMovements.suprimento)}</h3>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-red-100 p-3 rounded-2xl">
+                    <Minus className="w-6 h-6 text-red-600" />
+                  </div>
+                </div>
+                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Sangrias</p>
+                <h3 className="text-xl font-black text-red-600">{formatCurrency(periodMovements.sangria)}</h3>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-blue-100 p-3 rounded-2xl">
+                    <Banknote className="w-6 h-6 text-blue-600" />
+                  </div>
+                </div>
+                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Dinheiro</p>
+                <h3 className="text-xl font-black text-gray-900">{formatCurrency(totalsByMethod['cash'] || 0)}</h3>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-purple-100 p-3 rounded-2xl">
+                    <CreditCard className="w-6 h-6 text-purple-600" />
+                  </div>
+                </div>
+                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Cartão</p>
+                <h3 className="text-xl font-black text-gray-900">
+                  {formatCurrency((totalsByMethod['credit_card'] || 0) + (totalsByMethod['debit_card'] || 0))}
+                </h3>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-emerald-100 p-3 rounded-2xl">
+                    <QrCode className="w-6 h-6 text-emerald-600" />
+                  </div>
+                </div>
+                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">PIX</p>
+                <h3 className="text-xl font-black text-gray-900">{formatCurrency(totalsByMethod['pix'] || 0)}</h3>
               </div>
             </div>
-          </div>
+          )}
+
+          {showFinanceDetails && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in zoom-in-95 duration-500">
+              {/* Main Chart */}
+              <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="font-bold text-gray-900">Desempenho de Vendas</h3>
+                  <div className="flex items-center gap-4 text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                      <span className="text-gray-500">Receita Diária</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ea580c" stopOpacity={0.1}/>
+                          <stop offset="95%" stopColor="#ea580c" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis 
+                        dataKey="date" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{fill: '#94a3b8', fontSize: 12}}
+                        dy={10}
+                      />
+                      <YAxis 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{fill: '#94a3b8', fontSize: 12}}
+                        tickFormatter={(value) => `R$${value}`}
+                      />
+                      <Tooltip 
+                        contentStyle={{backgroundColor: '#fff', borderRadius: '16px', border: '1px solid #fed7aa', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
+                        formatter={(value) => [formatCurrency(value), 'Total']}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="total" 
+                        stroke="#ea580c" 
+                        strokeWidth={3}
+                        fillOpacity={1} 
+                        fill="url(#colorTotal)" 
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Payment Methods Chart */}
+              <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+                <h3 className="font-bold text-gray-900 mb-6">Métodos de Pagamento</h3>
+                <div className="h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={[
+                      { name: 'Dinheiro', value: totalsByMethod['cash'] || 0 },
+                      { name: 'Crédito', value: totalsByMethod['credit_card'] || 0 },
+                      { name: 'Débito', value: totalsByMethod['debit_card'] || 0 },
+                      { name: 'PIX', value: totalsByMethod['pix'] || 0 },
+                    ]}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis 
+                        dataKey="name" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{fill: '#94a3b8', fontSize: 11}}
+                      />
+                      <YAxis hide />
+                      <Tooltip 
+                        cursor={{fill: '#fff7ed'}}
+                        contentStyle={{backgroundColor: '#fff', borderRadius: '16px', border: '1px solid #fed7aa'}}
+                        formatter={(value) => [formatCurrency(value), 'Total']}
+                      />
+                      <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                        {[0, 1, 2, 3].map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Recent Transactions List */}
           <div className="bg-white rounded-3xl border border-orange-100 shadow-sm overflow-hidden">
@@ -910,9 +988,12 @@ export default function Cashier({ user }: { user: any }) {
                   <th className="px-6 py-4">Abertura</th>
                   <th className="px-6 py-4">Fechamento</th>
                   <th className="px-6 py-4 text-right">Inicial</th>
+                  <th className="px-6 py-4 text-right">Bruto</th>
+                  <th className="px-6 py-4 text-right">Líquido</th>
                   <th className="px-6 py-4 text-right">Esperado</th>
                   <th className="px-6 py-4 text-right">Informado</th>
                   <th className="px-6 py-4 text-right">Diferença</th>
+                  <th className="px-6 py-4 text-center">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-orange-50">
@@ -927,6 +1008,12 @@ export default function Cashier({ user }: { user: any }) {
                     <td className="px-6 py-4 text-right text-sm font-bold text-gray-900">
                       {formatCurrency(session.initial_amount)}
                     </td>
+                    <td className="px-6 py-4 text-right text-sm font-bold text-orange-600">
+                      {formatCurrency(session.total_sales || 0)}
+                    </td>
+                    <td className="px-6 py-4 text-right text-sm font-bold text-emerald-600">
+                      {formatCurrency((session.total_sales || 0) + (session.total_suprimentos || 0) - (session.total_sangrias || 0))}
+                    </td>
                     <td className="px-6 py-4 text-right text-sm font-bold text-gray-900">
                       {formatCurrency(session.expected_amount)}
                     </td>
@@ -937,6 +1024,15 @@ export default function Cashier({ user }: { user: any }) {
                       <span className={`text-sm font-black ${session.difference >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                         {session.difference > 0 ? '+' : ''}{formatCurrency(session.difference)}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <button 
+                        onClick={() => setSelectedSessionDetails(session)}
+                        className="p-2 text-orange-600 hover:bg-orange-100 rounded-xl transition-colors"
+                        title="Ver Detalhes"
+                      >
+                        <Search className="w-4 h-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -1115,6 +1211,93 @@ export default function Cashier({ user }: { user: any }) {
                 {isSubmitting ? 'Processando...' : `Confirmar ${movementType === 'suprimento' ? 'Entrada' : 'Retirada'}`}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {selectedSessionDetails && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-orange-50 flex items-center justify-between bg-orange-50 shrink-0">
+              <div>
+                <h3 className="text-xl font-black text-orange-900">Detalhes do Caixa</h3>
+                <p className="text-xs text-orange-600 font-bold">
+                  Sessão de {format(parseISO(selectedSessionDetails.opened_at), "dd/MM/yyyy HH:mm")}
+                </p>
+              </div>
+              <button onClick={() => setSelectedSessionDetails(null)} className="p-2 hover:bg-orange-100 rounded-xl transition-colors">
+                <X className="w-6 h-6 text-orange-600" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100">
+                  <p className="text-[10px] font-bold text-orange-500 uppercase mb-1">Saldo Inicial</p>
+                  <p className="text-lg font-black text-orange-900">{formatCurrency(selectedSessionDetails.initial_amount)}</p>
+                </div>
+                <div className="bg-orange-600 p-4 rounded-2xl shadow-lg shadow-orange-100">
+                  <p className="text-[10px] font-bold text-orange-100 uppercase mb-1">Total Bruto</p>
+                  <p className="text-lg font-black text-white">{formatCurrency(selectedSessionDetails.total_sales || 0)}</p>
+                </div>
+                <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                  <p className="text-[10px] font-bold text-emerald-500 uppercase mb-1">Suprimentos</p>
+                  <p className="text-lg font-black text-emerald-600">+{formatCurrency(selectedSessionDetails.total_suprimentos || 0)}</p>
+                </div>
+                <div className="bg-red-50 p-4 rounded-2xl border border-red-100">
+                  <p className="text-[10px] font-bold text-red-500 uppercase mb-1">Sangrias</p>
+                  <p className="text-lg font-black text-red-600">-{formatCurrency(selectedSessionDetails.total_sangrias || 0)}</p>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
+                <h4 className="text-sm font-black text-gray-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-orange-600" />
+                  Resumo de Fechamento
+                </h4>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                    <span className="text-sm text-gray-600 font-medium">Total Líquido (Vendas + Entradas - Saídas)</span>
+                    <span className="text-sm font-black text-gray-900">
+                      {formatCurrency((selectedSessionDetails.total_sales || 0) + (selectedSessionDetails.total_suprimentos || 0) - (selectedSessionDetails.total_sangrias || 0))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                    <span className="text-sm text-gray-600 font-medium">Saldo Esperado em Caixa</span>
+                    <span className="text-sm font-black text-gray-900">{formatCurrency(selectedSessionDetails.expected_amount)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                    <span className="text-sm text-gray-600 font-medium">Saldo Informado (Real)</span>
+                    <span className="text-sm font-black text-gray-900">{formatCurrency(selectedSessionDetails.actual_amount)}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-2">
+                    <span className="text-sm font-bold text-gray-900">Diferença de Caixa</span>
+                    <span className={`text-lg font-black ${selectedSessionDetails.difference >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {selectedSessionDetails.difference > 0 ? '+' : ''}{formatCurrency(selectedSessionDetails.difference)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                <Calendar className="w-5 h-5 text-blue-600" />
+                <div>
+                  <p className="text-[10px] font-bold text-blue-500 uppercase">Período da Sessão</p>
+                  <p className="text-sm font-bold text-blue-900">
+                    {format(parseISO(selectedSessionDetails.opened_at), "HH:mm")} às {selectedSessionDetails.closed_at ? format(parseISO(selectedSessionDetails.closed_at), "HH:mm") : 'Em aberto'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 bg-gray-50 border-t border-gray-100 shrink-0">
+              <button 
+                onClick={() => setSelectedSessionDetails(null)}
+                className="w-full py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-100 transition-colors"
+              >
+                Fechar Detalhes
+              </button>
+            </div>
           </div>
         </div>
       )}
