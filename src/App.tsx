@@ -9,7 +9,9 @@ import {
   X,
   User,
   AlertTriangle,
-  Banknote
+  Banknote,
+  DollarSign,
+  Briefcase
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
@@ -26,6 +28,8 @@ import Cashier from './components/Cashier';
 import Customers from './components/Customers';
 import Categories from './components/Categories';
 import Suppliers from './components/Suppliers';
+import Expenses from './components/Expenses';
+import Technicians from './components/Technicians';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -33,8 +37,9 @@ function cn(...inputs: ClassValue[]) {
 
 export default function App() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'orders' | 'pos' | 'sales' | 'profile' | 'cashier' | 'customers' | 'categories' | 'suppliers'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'orders' | 'pos' | 'sales' | 'profile' | 'cashier' | 'customers' | 'categories' | 'suppliers' | 'expenses' | 'technicians'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [configError, setConfigError] = useState(false);
   
@@ -61,11 +66,40 @@ export default function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      if (!session) setProfile(null);
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      fetchProfile();
+    }
+  }, [user]);
+
+  const fetchProfile = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user?.id)
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // Profile might not exist yet, handled in Profile component or during signup
+        } else {
+          console.error('Error fetching profile in App:', error);
+        }
+      } else {
+        setProfile(data);
+      }
+    } catch (error) {
+      console.error('Error in fetchProfile:', error);
+    }
+  };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -257,7 +291,9 @@ export default function App() {
     { id: 'sales', label: 'Histórico', icon: ShoppingCart },
     { id: 'inventory', label: 'Estoque', icon: Package },
     { id: 'orders', label: 'Ordens de Serviço', icon: Wrench },
+    { id: 'technicians', label: 'Técnicos', icon: Briefcase },
     { id: 'customers', label: 'Clientes', icon: User },
+    { id: 'expenses', label: 'Despesas', icon: DollarSign },
     { id: 'categories', label: 'Categorias', icon: LayoutDashboard },
     { id: 'suppliers', label: 'Fornecedores', icon: Package },
     { id: 'profile', label: 'Meu Perfil', icon: User },
@@ -291,7 +327,9 @@ export default function App() {
             <div className="bg-orange-600 p-2 rounded-lg">
               <Wrench className="w-6 h-6 text-white" />
             </div>
-            <span className="text-xl font-bold text-gray-900">CellRepair</span>
+            <span className="text-xl font-bold text-gray-900 truncate">
+              {profile?.store_name || 'CellRepair'}
+            </span>
           </div>
 
           <nav className="flex-1 p-4 space-y-2">
@@ -318,12 +356,14 @@ export default function App() {
           <div className="p-4 border-t border-orange-100">
             <div className="flex items-center gap-3 px-4 py-3 mb-4">
               <img 
-                src={user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${user.user_metadata?.full_name || user.email}`} 
+                src={user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${profile?.store_name || user.user_metadata?.full_name || user.email}`} 
                 alt="Avatar" 
                 className="w-10 h-10 rounded-full border-2 border-orange-200"
               />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 truncate">{user.user_metadata?.full_name || 'Usuário'}</p>
+                <p className="text-sm font-semibold text-gray-900 truncate">
+                  {profile?.store_name || user.user_metadata?.full_name || 'Usuário'}
+                </p>
                 <p className="text-xs text-gray-500 truncate">{user.email}</p>
               </div>
             </div>
@@ -341,16 +381,42 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 overflow-auto p-4 lg:p-8">
         <div className="max-w-7xl mx-auto">
-          {activeTab === 'dashboard' && <Dashboard user={user} />}
-          {activeTab === 'inventory' && <Inventory user={user} />}
-          {activeTab === 'orders' && <ServiceOrders user={user} />}
-          {activeTab === 'pos' && <POS user={user} onNavigate={setActiveTab} />}
-          {activeTab === 'sales' && <SalesHistory user={user} onNavigate={setActiveTab} />}
-          {activeTab === 'cashier' && <Cashier user={user} />}
-          {activeTab === 'customers' && <Customers user={user} />}
-          {activeTab === 'categories' && <Categories user={user} />}
-          {activeTab === 'suppliers' && <Suppliers user={user} />}
-          {activeTab === 'profile' && <Profile user={user} />}
+          <div className={cn(activeTab !== 'dashboard' && "hidden")}>
+            <Dashboard user={user} />
+          </div>
+          <div className={cn(activeTab !== 'inventory' && "hidden")}>
+            <Inventory user={user} />
+          </div>
+          <div className={cn(activeTab !== 'orders' && "hidden")}>
+            <ServiceOrders user={user} />
+          </div>
+          <div className={cn(activeTab !== 'technicians' && "hidden")}>
+            <Technicians user={user} />
+          </div>
+          <div className={cn(activeTab !== 'pos' && "hidden")}>
+            <POS user={user} onNavigate={setActiveTab} isActive={activeTab === 'pos'} />
+          </div>
+          <div className={cn(activeTab !== 'sales' && "hidden")}>
+            <SalesHistory user={user} onNavigate={setActiveTab} />
+          </div>
+          <div className={cn(activeTab !== 'cashier' && "hidden")}>
+            <Cashier user={user} />
+          </div>
+          <div className={cn(activeTab !== 'expenses' && "hidden")}>
+            <Expenses user={user} />
+          </div>
+          <div className={cn(activeTab !== 'customers' && "hidden")}>
+            <Customers user={user} />
+          </div>
+          <div className={cn(activeTab !== 'categories' && "hidden")}>
+            <Categories user={user} />
+          </div>
+          <div className={cn(activeTab !== 'suppliers' && "hidden")}>
+            <Suppliers user={user} />
+          </div>
+          <div className={cn(activeTab !== 'profile' && "hidden")}>
+            <Profile user={user} onProfileUpdate={fetchProfile} />
+          </div>
         </div>
       </main>
     </div>

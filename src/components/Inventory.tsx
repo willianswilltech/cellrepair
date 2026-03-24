@@ -33,6 +33,20 @@ export default function Inventory({ user }: { user: any }) {
   const scannerRef = React.useRef<Html5QrcodeScanner | null>(null);
   
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsModalOpen(false);
+        setIsDeleteModalOpen(false);
+        setIsScanning(false);
+        setEditingProduct(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  useEffect(() => {
     if (isModalOpen || isDeleteModalOpen) {
       document.body.style.overflow = 'hidden';
     } else {
@@ -353,10 +367,12 @@ export default function Inventory({ user }: { user: any }) {
     }
   };
 
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = React.useMemo(() => {
+    return products.filter(p => 
+      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.category.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [products, searchTerm]);
 
   if (isLoading) {
     return (
@@ -451,12 +467,12 @@ export default function Inventory({ user }: { user: any }) {
                         onClick={() => {
                           setEditingProduct(product);
                           setFormData({
-                            name: product.name,
-                            description: product.description,
-                            price: product.price,
-                            cost: product.cost,
-                            stock: product.stock,
-                            category: product.category,
+                            name: product.name || '',
+                            description: product.description || '',
+                            price: product.price || 0,
+                            cost: product.cost || 0,
+                            stock: product.stock || 0,
+                            category: product.category || '',
                             categoryId: product.categoryId || '',
                             barcode: product.barcode || ''
                           });
@@ -507,7 +523,7 @@ export default function Inventory({ user }: { user: any }) {
                     required
                     type="text" 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.name}
+                    value={formData.name || ''}
                     onChange={e => setFormData({...formData, name: e.target.value})}
                   />
                 </div>
@@ -517,7 +533,7 @@ export default function Inventory({ user }: { user: any }) {
                     <input 
                       type="text" 
                       className="flex-1 px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                      value={formData.barcode}
+                      value={formData.barcode || ''}
                       onChange={e => setFormData({...formData, barcode: e.target.value})}
                       placeholder="Escaneie ou digite o código de barras"
                     />
@@ -547,7 +563,7 @@ export default function Inventory({ user }: { user: any }) {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
                   <textarea 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.description}
+                    value={formData.description || ''}
                     onChange={e => setFormData({...formData, description: e.target.value})}
                   />
                 </div>
@@ -594,7 +610,7 @@ export default function Inventory({ user }: { user: any }) {
                       <select 
                         required
                         className="flex-1 min-w-0 px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm"
-                        value={formData.categoryId}
+                        value={formData.categoryId || ''}
                         onChange={e => {
                           const cat = categories.find(c => c.id === e.target.value);
                           if (cat) {

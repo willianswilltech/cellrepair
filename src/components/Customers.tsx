@@ -249,9 +249,9 @@ export default function Customers({ user }: { user: any }) {
                         onClick={() => {
                           setEditingCustomer(customer);
                           setFormData({
-                            name: customer.name,
+                            name: customer.name || '',
                             email: customer.email || '',
-                            phone: customer.phone,
+                            phone: customer.phone || '',
                             cep: customer.cep || '',
                             document: customer.document || '',
                             address: customer.address || ''
@@ -309,7 +309,7 @@ export default function Customers({ user }: { user: any }) {
                     required
                     type="text" 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.name}
+                    value={formData.name || ''}
                     onChange={e => setFormData({...formData, name: e.target.value})}
                   />
                 </div>
@@ -320,7 +320,7 @@ export default function Customers({ user }: { user: any }) {
                       required
                       type="text" 
                       className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                      value={formData.phone}
+                      value={formData.phone || ''}
                       onChange={e => setFormData({...formData, phone: e.target.value})}
                     />
                   </div>
@@ -332,7 +332,7 @@ export default function Customers({ user }: { user: any }) {
                       maxLength={8}
                       placeholder="00000000"
                       className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                      value={formData.cep}
+                      value={formData.cep || ''}
                       onChange={e => handleCepChange(e.target.value)}
                     />
                   </div>
@@ -341,7 +341,7 @@ export default function Customers({ user }: { user: any }) {
                     <input 
                       type="text" 
                       className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                      value={formData.document}
+                      value={formData.document || ''}
                       onChange={e => setFormData({...formData, document: e.target.value})}
                     />
                   </div>
@@ -352,7 +352,7 @@ export default function Customers({ user }: { user: any }) {
                   <input 
                     type="email" 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.email}
+                    value={formData.email || ''}
                     onChange={e => setFormData({...formData, email: e.target.value})}
                   />
                 </div>
@@ -361,7 +361,7 @@ export default function Customers({ user }: { user: any }) {
                   <input 
                     type="text" 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.address}
+                    value={formData.address || ''}
                     onChange={e => setFormData({...formData, address: e.target.value})}
                   />
                 </div>

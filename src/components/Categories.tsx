@@ -232,7 +232,7 @@ export default function Categories({ user }: { user: any }) {
                         onClick={() => {
                           setEditingCategory(category);
                           setFormData({
-                            name: category.name,
+                            name: category.name || '',
                             description: category.description || ''
                           });
                           setIsModalOpen(true);

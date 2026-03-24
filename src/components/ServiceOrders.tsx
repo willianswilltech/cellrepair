@@ -15,17 +15,28 @@ import {
   Trash2,
   Banknote,
   CreditCard,
-  QrCode
+  QrCode,
+  MessageCircle,
+  Printer,
+  ShieldCheck,
+  UserCheck,
+  Camera as CameraIcon,
+  X
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { ServiceOrder, Customer } from '../types';
 import { formatCurrency, formatDate } from '../utils/format';
 import { fetchAddressByCep } from '../utils/cep';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 export default function ServiceOrders({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true);
   const [orders, setOrders] = useState<ServiceOrder[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [profile, setProfile] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false);
@@ -37,6 +48,20 @@ export default function ServiceOrders({ user }: { user: any }) {
   const [editingOrder, setEditingOrder] = useState<ServiceOrder | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsModalOpen(false);
+        setIsDeleteModalOpen(false);
+        setIsDeliveryModalOpen(false);
+        setEditingOrder(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useEffect(() => {
     if (isModalOpen || isDeleteModalOpen || isDeliveryModalOpen) {
@@ -59,8 +84,22 @@ export default function ServiceOrders({ user }: { user: any }) {
     problem: '',
     observations: '',
     totalValue: 0,
-    status: 'pending' as const
+    laborValue: 0,
+    status: 'pending' as const,
+    warrantyPeriod: '90 dias',
+    technicianId: '',
+    technicianName: '',
+    partsUsed: [] as any[]
   });
+
+  // Auto-calculate total value when parts or labor change
+  useEffect(() => {
+    const partsTotal = formData.partsUsed.reduce((acc, part) => acc + (part.price * part.quantity), 0);
+    const newTotal = partsTotal + (Number(formData.laborValue) || 0);
+    if (newTotal !== formData.totalValue) {
+      setFormData(prev => ({ ...prev, totalValue: newTotal }));
+    }
+  }, [formData.partsUsed, formData.laborValue]);
 
   const handleCepChange = async (cep: string) => {
     const cleanCep = cep.replace(/\D/g, '');
@@ -78,7 +117,7 @@ export default function ServiceOrders({ user }: { user: any }) {
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
-      await Promise.all([fetchOrders(), fetchCustomers()]);
+      await Promise.all([fetchOrders(), fetchCustomers(), fetchTechnicians(), fetchProducts(), fetchProfile()]);
       setIsLoading(false);
     };
     init();
@@ -92,12 +131,35 @@ export default function ServiceOrders({ user }: { user: any }) {
       .on('postgres_changes', { event: '*', table: 'customers' }, () => {
         fetchCustomers();
       })
+      .on('postgres_changes', { event: '*', table: 'products' }, () => {
+        fetchProducts();
+      })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  const fetchProducts = async () => {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('name');
+    if (error) console.error('Erro ao buscar produtos:', error);
+    else setProducts(data || []);
+  };
+
+  const fetchProfile = async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+    if (error) console.error('Erro ao buscar perfil:', error);
+    else setProfile(data);
+  };
 
   const fetchOrders = async () => {
     const { data, error } = await supabase
@@ -121,8 +183,14 @@ export default function ServiceOrders({ user }: { user: any }) {
         problem: o.problem,
         status: o.status,
         totalValue: o.total_value,
-        partsUsed: o.parts_used,
+        partsUsed: o.parts_used || [],
         observations: o.observations,
+        warrantyPeriod: o.warranty_period,
+        technicianId: o.technician_id,
+        technicianName: o.technician_name,
+        commissionValue: o.commission_value,
+        entryPhotos: o.entry_photos,
+        exitPhotos: o.exit_photos,
         createdAt: o.created_at,
         updatedAt: o.updated_at
       }));
@@ -144,11 +212,28 @@ export default function ServiceOrders({ user }: { user: any }) {
     }
   };
 
+  const fetchTechnicians = async () => {
+    const { data, error } = await supabase
+      .from('technicians')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('name');
+    
+    if (error) {
+      console.error('Error fetching technicians:', error);
+    } else {
+      setTechnicians(data || []);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setIsSaving(true);
     try {
+      const selectedTech = technicians.find(t => t.id === formData.technicianId);
+      const commissionValue = selectedTech ? (formData.totalValue * (selectedTech.commission_percentage / 100)) : 0;
+
       const payload = {
         customer_id: formData.customerId || null,
         customer_name: formData.customerName,
@@ -159,7 +244,12 @@ export default function ServiceOrders({ user }: { user: any }) {
         problem: formData.problem,
         observations: formData.observations,
         total_value: formData.totalValue,
-        status: formData.status
+        status: formData.status,
+        warranty_period: formData.warrantyPeriod,
+        technician_id: formData.technicianId || null,
+        technician_name: selectedTech?.name || '',
+        commission_value: commissionValue,
+        parts_used: formData.partsUsed
       };
 
       if (editingOrder) {
@@ -177,7 +267,7 @@ export default function ServiceOrders({ user }: { user: any }) {
           .from('service_orders')
           .insert({
             ...payload,
-            parts_used: []
+            user_id: user.id
           });
         if (submitError) throw submitError;
       }
@@ -185,7 +275,23 @@ export default function ServiceOrders({ user }: { user: any }) {
       await fetchOrders();
       setIsModalOpen(false);
       setEditingOrder(null);
-      setFormData({ customerId: '', customerName: '', customerPhone: '', cep: '', address: '', device: '', problem: '', observations: '', totalValue: 0, status: 'pending' });
+      setFormData({ 
+        customerId: '', 
+        customerName: '', 
+        customerPhone: '', 
+        cep: '', 
+        address: '', 
+        device: '', 
+        problem: '', 
+        observations: '', 
+        totalValue: 0, 
+        status: 'pending',
+        warrantyPeriod: '90 dias',
+        technicianId: '',
+        technicianName: '',
+        laborValue: 0,
+        partsUsed: []
+      });
     } catch (err: any) {
       console.error("Erro ao salvar OS:", err);
       setError(err.message || "Ocorreu um erro ao salvar a ordem de serviço. Verifique os dados e tente novamente.");
@@ -262,6 +368,66 @@ export default function ServiceOrders({ user }: { user: any }) {
   const confirmDelivery = async () => {
     if (!deliveringOrder) return;
     await updateStatus(deliveringOrder.id!, 'delivered', selectedPaymentMethod);
+  };
+
+  const notifyWhatsApp = (order: ServiceOrder) => {
+    const message = `Olá ${order.customerName}, seu aparelho ${order.device} já está pronto na CellRepair! Valor total: ${formatCurrency(order.totalValue)}. Garantia de ${order.warrantyPeriod || '90 dias'}. Pode vir retirar quando quiser!`;
+    const phone = order.customerPhone.replace(/\D/g, '');
+    window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
+  const printReceipt = (order: ServiceOrder) => {
+    const doc = new jsPDF({
+      unit: 'mm',
+      format: [80, 200] // Aumentado para caber mais dados
+    });
+
+    const storeName = profile?.store_name || 'CELLREPAIR PRO';
+    const storeCnpj = profile?.cnpj || '';
+    const storePhone = profile?.phone || '';
+    const storeAddress = profile?.address || '';
+
+    doc.setFontSize(12);
+    doc.text(storeName.toUpperCase(), 40, 10, { align: 'center' });
+    doc.setFontSize(8);
+    if (storeCnpj) doc.text(`CNPJ: ${storeCnpj}`, 40, 15, { align: 'center' });
+    if (storePhone) doc.text(`Tel: ${storePhone}`, 40, 20, { align: 'center' });
+    if (storeAddress) {
+      const splitAddress = doc.splitTextToSize(storeAddress, 70);
+      doc.text(splitAddress, 40, 25, { align: 'center' });
+    }
+    
+    const startY = storeAddress ? 35 : 25;
+    doc.text('Comprovante de Serviço', 40, startY, { align: 'center' });
+    doc.text('------------------------------------------', 40, startY + 5, { align: 'center' });
+    
+    let currentY = startY + 10;
+    doc.text(`OS: ${order.id?.substring(0, 8)}`, 5, currentY);
+    currentY += 5;
+    doc.text(`Data: ${formatDate(order.createdAt!)}`, 5, currentY);
+    currentY += 5;
+    doc.text(`Cliente: ${order.customerName}`, 5, currentY);
+    currentY += 5;
+    doc.text(`Aparelho: ${order.device}`, 5, currentY);
+    currentY += 5;
+    doc.text(`Defeito: ${order.problem}`, 5, currentY);
+    currentY += 5;
+    doc.text(`Garantia: ${order.warrantyPeriod || '90 dias'}`, 5, currentY);
+    currentY += 5;
+    doc.text(`Técnico: ${order.technicianName || 'N/A'}`, 5, currentY);
+    
+    currentY += 5;
+    doc.text('------------------------------------------', 40, currentY, { align: 'center' });
+    currentY += 5;
+    doc.setFontSize(10);
+    doc.text(`TOTAL: ${formatCurrency(order.totalValue)}`, 5, currentY);
+    doc.setFontSize(8);
+    currentY += 5;
+    doc.text('------------------------------------------', 40, currentY, { align: 'center' });
+    currentY += 5;
+    doc.text('Obrigado pela preferência!', 40, currentY, { align: 'center' });
+
+    doc.save(`OS_${order.id?.substring(0, 8)}.pdf`);
   };
 
   // Keyboard shortcuts for delivery modal
@@ -347,7 +513,23 @@ export default function ServiceOrders({ user }: { user: any }) {
         <button 
           onClick={() => {
             setEditingOrder(null);
-            setFormData({ customerId: '', customerName: '', customerPhone: '', cep: '', address: '', device: '', problem: '', observations: '', totalValue: 0, status: 'pending' });
+            setFormData({ 
+              customerId: '', 
+              customerName: '', 
+              customerPhone: '', 
+              cep: '', 
+              address: '', 
+              device: '', 
+              problem: '', 
+              observations: '', 
+              totalValue: 0, 
+              status: 'pending',
+              warrantyPeriod: '90 dias',
+              technicianId: '',
+              technicianName: '',
+              laborValue: 0,
+              partsUsed: []
+            });
             setIsModalOpen(true);
           }}
           className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 shadow-lg shadow-orange-200 transition-all"
@@ -420,15 +602,20 @@ export default function ServiceOrders({ user }: { user: any }) {
                         setEditingOrder(order);
                         setFormData({
                           customerId: order.customerId || '',
-                          customerName: order.customerName,
-                          customerPhone: order.customerPhone,
+                          customerName: order.customerName || '',
+                          customerPhone: order.customerPhone || '',
                           cep: order.cep || '',
                           address: order.address || '',
-                          device: order.device,
-                          problem: order.problem,
+                          device: order.device || '',
+                          problem: order.problem || '',
                           observations: order.observations || '',
-                          totalValue: order.totalValue,
-                          status: order.status
+                          totalValue: order.totalValue || 0,
+                          laborValue: (order.totalValue || 0) - (order.partsUsed || []).reduce((acc: number, p: any) => acc + (p.price * p.quantity), 0),
+                          status: order.status || 'pending',
+                          warrantyPeriod: order.warrantyPeriod || '90 dias',
+                          technicianId: order.technicianId || '',
+                          technicianName: order.technicianName || '',
+                          partsUsed: order.partsUsed || []
                         });
                         setIsModalOpen(true);
                       }}
@@ -457,6 +644,20 @@ export default function ServiceOrders({ user }: { user: any }) {
                       title="Entregar ao Cliente"
                     >
                       <Truck className="w-5 h-5" />
+                    </button>
+                    <button 
+                      onClick={() => notifyWhatsApp(order)}
+                      className="p-2 text-green-600 hover:bg-green-50 rounded-xl transition-all"
+                      title="Notificar WhatsApp"
+                    >
+                      <MessageCircle className="w-5 h-5" />
+                    </button>
+                    <button 
+                      onClick={() => printReceipt(order)}
+                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                      title="Imprimir Recibo"
+                    >
+                      <Printer className="w-5 h-5" />
                     </button>
                     <button 
                       onClick={() => handleDelete(order.id!)}
@@ -505,7 +706,7 @@ export default function ServiceOrders({ user }: { user: any }) {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Selecionar Cliente</label>
                   <select 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.customerId}
+                    value={formData.customerId || ''}
                     onChange={e => {
                       const customer = customers.find(c => c.id === e.target.value);
                       if (customer) {
@@ -541,7 +742,7 @@ export default function ServiceOrders({ user }: { user: any }) {
                     required
                     type="text" 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.customerName}
+                    value={formData.customerName || ''}
                     onChange={e => setFormData({...formData, customerName: e.target.value})}
                   />
                 </div>
@@ -551,7 +752,7 @@ export default function ServiceOrders({ user }: { user: any }) {
                     required
                     type="text" 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.customerPhone}
+                    value={formData.customerPhone || ''}
                     onChange={e => setFormData({...formData, customerPhone: e.target.value})}
                   />
                 </div>
@@ -562,7 +763,7 @@ export default function ServiceOrders({ user }: { user: any }) {
                     maxLength={8}
                     placeholder="00000000"
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.cep}
+                    value={formData.cep || ''}
                     onChange={e => handleCepChange(e.target.value)}
                   />
                 </div>
@@ -571,7 +772,7 @@ export default function ServiceOrders({ user }: { user: any }) {
                   <input 
                     type="text" 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.address}
+                    value={formData.address || ''}
                     onChange={e => setFormData({...formData, address: e.target.value})}
                   />
                 </div>
@@ -581,7 +782,7 @@ export default function ServiceOrders({ user }: { user: any }) {
                     required
                     type="text" 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.device}
+                    value={formData.device || ''}
                     onChange={e => setFormData({...formData, device: e.target.value})}
                   />
                 </div>
@@ -590,7 +791,7 @@ export default function ServiceOrders({ user }: { user: any }) {
                   <textarea 
                     required
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.problem}
+                    value={formData.problem || ''}
                     onChange={e => setFormData({...formData, problem: e.target.value})}
                   />
                 </div>
@@ -598,28 +799,71 @@ export default function ServiceOrders({ user }: { user: any }) {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
                   <textarea 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.observations}
+                    value={formData.observations || ''}
                     onChange={e => setFormData({...formData, observations: e.target.value})}
                     rows={3}
                     placeholder="Informações adicionais sobre o reparo..."
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Valor Estimado</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-orange-600" />
+                    Garantia
+                  </label>
+                  <select 
+                    className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={formData.warrantyPeriod || '90 dias'}
+                    onChange={e => setFormData({...formData, warrantyPeriod: e.target.value})}
+                  >
+                    <option value="Sem garantia">Sem garantia</option>
+                    <option value="30 dias">30 dias</option>
+                    <option value="90 dias">90 dias</option>
+                    <option value="180 dias">180 dias</option>
+                    <option value="1 ano">1 ano</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-orange-600" />
+                    Técnico
+                  </label>
+                  <select 
+                    className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={formData.technicianId || ''}
+                    onChange={e => setFormData({...formData, technicianId: e.target.value})}
+                  >
+                    <option value="">Selecione um técnico...</option>
+                    {technicians.map(tech => (
+                      <option key={tech.id} value={tech.id}>{tech.name} ({tech.commission_percentage}%)</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Mão de Obra (R$)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-orange-700"
+                    value={isNaN(formData.laborValue) ? '' : formData.laborValue}
+                    onChange={e => setFormData({...formData, laborValue: parseFloat(e.target.value) || 0})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Valor Total (Estimado)</label>
                   <input 
                     required
                     type="number" 
                     step="0.01"
-                    className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                    className="w-full px-4 py-2 bg-orange-100 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-black text-orange-600"
                     value={isNaN(formData.totalValue) ? '' : formData.totalValue}
-                    onChange={e => setFormData({...formData, totalValue: parseFloat(e.target.value)})}
+                    onChange={e => setFormData({...formData, totalValue: parseFloat(e.target.value) || 0})}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                   <select 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.status}
+                    value={formData.status || 'pending'}
                     onChange={e => setFormData({...formData, status: e.target.value as any})}
                   >
                     <option value="pending">Pendente</option>
@@ -628,6 +872,96 @@ export default function ServiceOrders({ user }: { user: any }) {
                     <option value="delivered">Entregue</option>
                     <option value="cancelled">Cancelado</option>
                   </select>
+                </div>
+
+                <div className="col-span-2 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 uppercase tracking-tight">Produtos / Peças Utilizadas</label>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase">O custo das peças será descontado no lucro do Dashboard</p>
+                    </div>
+                    <div className="relative group">
+                      <select 
+                        className="px-4 py-2 bg-orange-100 text-orange-700 text-xs font-bold rounded-xl outline-none cursor-pointer hover:bg-orange-200 transition-all"
+                        onChange={(e) => {
+                          const product = products.find(p => p.id === e.target.value);
+                          if (product) {
+                            const exists = formData.partsUsed.find(p => p.productId === product.id);
+                            if (!exists) {
+                              setFormData({
+                                ...formData,
+                                partsUsed: [...formData.partsUsed, { 
+                                  productId: product.id, 
+                                  name: product.name, 
+                                  quantity: 1, 
+                                  price: product.price,
+                                  cost: product.cost 
+                                }]
+                              });
+                            }
+                          }
+                          e.target.value = "";
+                        }}
+                      >
+                        <option value="">+ Adicionar Peça...</option>
+                        {products.map(p => (
+                          <option key={p.id} value={p.id}>{p.name} (R$ {p.price})</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {formData.partsUsed.length === 0 ? (
+                      <p className="text-xs text-gray-400 italic text-center py-4 border-2 border-dashed border-orange-50 rounded-2xl">Nenhuma peça adicionada ainda.</p>
+                    ) : (
+                      formData.partsUsed.map((part, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 bg-orange-50 rounded-xl border border-orange-100">
+                          <div className="flex-1">
+                            <p className="text-sm font-bold text-gray-900">{part.name}</p>
+                            <p className="text-[10px] text-gray-500 uppercase font-bold">Custo: {formatCurrency(part.cost)} | Venda: {formatCurrency(part.price)}</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2 bg-white rounded-lg border border-orange-100 px-2 py-1">
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const newParts = [...formData.partsUsed];
+                                  newParts[index].quantity = Math.max(1, newParts[index].quantity - 1);
+                                  setFormData({...formData, partsUsed: newParts});
+                                }}
+                                className="text-orange-600 hover:bg-orange-50 rounded p-0.5"
+                              >
+                                <X className="w-3 h-3 rotate-45" />
+                              </button>
+                              <span className="text-xs font-bold w-4 text-center">{part.quantity}</span>
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const newParts = [...formData.partsUsed];
+                                  newParts[index].quantity += 1;
+                                  setFormData({...formData, partsUsed: newParts});
+                                }}
+                                className="text-orange-600 hover:bg-orange-50 rounded p-0.5"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const newParts = formData.partsUsed.filter((_, i) => i !== index);
+                                setFormData({...formData, partsUsed: newParts});
+                              }}
+                              className="text-red-500 hover:bg-red-50 rounded-xl p-2 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex gap-3 pt-4">

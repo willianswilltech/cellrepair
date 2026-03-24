@@ -225,7 +225,7 @@ export default function Suppliers({ user }: { user: any }) {
                         onClick={() => {
                           setEditingSupplier(supplier);
                           setFormData({
-                            name: supplier.name,
+                            name: supplier.name || '',
                             contactName: supplier.contactName || '',
                             email: supplier.email || '',
                             phone: supplier.phone || '',
@@ -278,7 +278,7 @@ export default function Suppliers({ user }: { user: any }) {
                     required
                     type="text" 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.name}
+                    value={formData.name || ''}
                     onChange={e => setFormData({...formData, name: e.target.value})}
                   />
                 </div>
@@ -288,7 +288,7 @@ export default function Suppliers({ user }: { user: any }) {
                     <input 
                       type="text" 
                       className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                      value={formData.contactName}
+                      value={formData.contactName || ''}
                       onChange={e => setFormData({...formData, contactName: e.target.value})}
                     />
                   </div>
@@ -297,7 +297,7 @@ export default function Suppliers({ user }: { user: any }) {
                     <input 
                       type="text" 
                       className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                      value={formData.phone}
+                      value={formData.phone || ''}
                       onChange={e => setFormData({...formData, phone: e.target.value})}
                     />
                   </div>
@@ -307,7 +307,7 @@ export default function Suppliers({ user }: { user: any }) {
                   <input 
                     type="email" 
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.email}
+                    value={formData.email || ''}
                     onChange={e => setFormData({...formData, email: e.target.value})}
                   />
                 </div>
@@ -317,7 +317,7 @@ export default function Suppliers({ user }: { user: any }) {
                     type="text" 
                     placeholder="Ex: Peças, Ferramentas, Acessórios"
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.category}
+                    value={formData.category || ''}
                     onChange={e => setFormData({...formData, category: e.target.value})}
                   />
                 </div>

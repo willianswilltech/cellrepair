@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { formatCurrency } from '../utils/format';
+import { subDays, format, eachDayOfInterval } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 export default function Dashboard({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true);
@@ -31,7 +33,10 @@ export default function Dashboard({ user }: { user: any }) {
     totalSales: 0,
     totalOrders: 0,
     lowStock: 0,
-    revenue: 0
+    revenue: 0,
+    expenses: 0,
+    lowStockItems: [] as any[],
+    chartData: [] as any[]
   });
 
   const data = [
@@ -49,34 +54,99 @@ export default function Dashboard({ user }: { user: any }) {
       setIsLoading(true);
       setError(null);
       try {
+        const sevenDaysAgo = subDays(new Date(), 6);
+        
         // Usando count: 'exact' e head: true para não baixar os dados, apenas contar
-        const [salesRes, ordersRes, productsRes, lowStockRes] = await Promise.all([
-          supabase.from('sales').select('total').eq('user_id', user.id),
-          supabase.from('service_orders').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-          supabase.from('products').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-          supabase.from('products').select('*', { count: 'exact', head: true }).eq('user_id', user.id).lte('stock', 5)
+        const [salesRes, ordersRes, allProductsRes, lowStockRes, expensesRes, weeklySalesRes, weeklyOrdersRes] = await Promise.all([
+          supabase.from('sales').select('total, items').eq('user_id', user.id),
+          supabase.from('service_orders').select('total_value, parts_used, status').eq('user_id', user.id),
+          supabase.from('products').select('id, cost').eq('user_id', user.id),
+          supabase.from('products').select('*').eq('user_id', user.id).lte('stock', 5),
+          supabase.from('expenses').select('amount').eq('user_id', user.id).eq('status', 'paid'),
+          supabase.from('sales').select('total, created_at, items').eq('user_id', user.id).gte('created_at', sevenDaysAgo.toISOString()),
+          supabase.from('service_orders').select('total_value, created_at, status').eq('user_id', user.id).gte('created_at', sevenDaysAgo.toISOString())
         ]);
 
-        if (salesRes.error || ordersRes.error || productsRes.error || lowStockRes.error) {
-          const firstError = salesRes.error || ordersRes.error || productsRes.error || lowStockRes.error;
-          console.error('Error fetching dashboard data:', {
-            salesError: salesRes.error,
-            ordersError: ordersRes.error,
-            productsError: productsRes.error,
-            lowStockError: lowStockRes.error
-          });
-          setError(`Erro ao buscar dados: ${firstError?.message || 'Erro desconhecido'}. Verifique se as tabelas do banco de dados foram configuradas corretamente.`);
+        if (salesRes.error || ordersRes.error || allProductsRes.error || lowStockRes.error || expensesRes.error || weeklySalesRes.error || weeklyOrdersRes.error) {
+          const firstError = salesRes.error || ordersRes.error || allProductsRes.error || lowStockRes.error || expensesRes.error || weeklySalesRes.error || weeklyOrdersRes.error;
+          setError(`Erro ao buscar dados: ${firstError?.message || 'Erro desconhecido'}.`);
           return;
         }
 
+        const productCosts = new Map();
+        allProductsRes.data?.forEach(p => productCosts.set(p.id, Number(p.cost) || 0));
+
         let revenue = 0;
-        salesRes.data?.forEach(s => revenue += Number(s.total) || 0);
+        let totalCost = 0;
+
+        // Vendas
+        salesRes.data?.forEach(s => {
+          revenue += Number(s.total) || 0;
+          const items = s.items as any[];
+          items?.forEach(item => {
+            const quantity = Number(item.quantity) || 1;
+            if (item.cost !== undefined) {
+              // Use o custo gravado na venda
+              totalCost += Number(item.cost) * quantity;
+            } else if (item.productId) {
+              // Fallback para o custo atual do produto
+              const cost = productCosts.get(item.productId) || 0;
+              totalCost += cost * quantity;
+            }
+          });
+        });
+
+        // Ordens de Serviço (Apenas Entregues contam para faturamento)
+        ordersRes.data?.forEach(o => {
+          if (o.status === 'delivered') {
+            revenue += Number(o.total_value) || 0;
+            const parts = o.parts_used as any[];
+            parts?.forEach(part => {
+              const quantity = Number(part.quantity) || 1;
+              if (part.cost !== undefined) {
+                // Use o custo gravado na OS (mais preciso para o momento da venda)
+                totalCost += Number(part.cost) * quantity;
+              } else if (part.productId) {
+                // Fallback para o custo atual do produto
+                const cost = productCosts.get(part.productId) || 0;
+                totalCost += cost * quantity;
+              }
+            });
+          }
+        });
+
+        let expenses = 0;
+        expensesRes.data?.forEach(e => expenses += Number(e.amount) || 0);
+
+        // Process chart data
+        const days = eachDayOfInterval({ start: sevenDaysAgo, end: new Date() });
+        const chartData = days.map(day => {
+          const dayStr = format(day, 'yyyy-MM-dd');
+          const dayName = format(day, 'EEE', { locale: ptBR });
+          
+          const daySales = (weeklySalesRes.data || [])
+            .filter(s => format(new Date(s.created_at), 'yyyy-MM-dd') === dayStr)
+            .reduce((acc, s) => acc + Number(s.total), 0);
+          
+          const dayOrders = (weeklyOrdersRes.data || [])
+            .filter(o => o.status === 'delivered' && format(new Date(o.created_at), 'yyyy-MM-dd') === dayStr)
+            .reduce((acc, o) => acc + Number(o.total_value), 0);
+
+          return { 
+            name: dayName.charAt(0).toUpperCase() + dayName.slice(1), 
+            vendas: daySales, 
+            os: dayOrders 
+          };
+        });
 
         setStats({
           totalSales: salesRes.data?.length || 0,
-          totalOrders: ordersRes.count || 0,
-          lowStock: lowStockRes.count || 0,
-          revenue
+          totalOrders: ordersRes.data?.length || 0,
+          lowStock: lowStockRes.data?.length || 0,
+          revenue,
+          expenses: expenses + totalCost, // Lucro líquido vai descontar isso
+          lowStockItems: lowStockRes.data || [],
+          chartData
         });
       } catch (err: any) {
         console.error('Fatal error fetching dashboard data:', err);
@@ -115,10 +185,10 @@ export default function Dashboard({ user }: { user: any }) {
   }
 
   const cards = [
-    { label: 'Faturamento Total', value: formatCurrency(stats.revenue), icon: DollarSign, color: 'bg-green-500', trend: '+12%' },
-    { label: 'Vendas Realizadas', value: stats.totalSales, icon: TrendingUp, color: 'bg-blue-500', trend: '+5%' },
-    { label: 'Ordens de Serviço', value: stats.totalOrders, icon: Wrench, color: 'bg-orange-500', trend: '+8%' },
-    { label: 'Produtos em Baixa', value: stats.lowStock, icon: Package, color: 'bg-red-500', trend: '-2%' },
+    { label: 'Faturamento Bruto', value: formatCurrency(stats.revenue), icon: DollarSign, color: 'bg-green-500', trend: '+12%' },
+    { label: 'Despesas e Custos', value: formatCurrency(stats.expenses), icon: ArrowDownRight, color: 'bg-red-500', trend: '-5%' },
+    { label: 'Lucro Líquido', value: formatCurrency(stats.revenue - stats.expenses), icon: TrendingUp, color: 'bg-blue-600', trend: '+15%' },
+    { label: 'Produtos em Baixa', value: stats.lowStock, icon: Package, color: 'bg-orange-500', trend: '-2%' },
   ];
 
   return (
@@ -147,11 +217,35 @@ export default function Dashboard({ user }: { user: any }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Low Stock Alerts */}
+        {stats.lowStockItems.length > 0 && (
+          <div className="lg:col-span-2 bg-red-50 border border-red-100 p-6 rounded-3xl space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="text-lg font-black uppercase tracking-tight">Alertas de Estoque Baixo</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {stats.lowStockItems.map((item: any) => (
+                <div key={item.id} className="bg-white p-4 rounded-2xl border border-red-100 flex justify-between items-center shadow-sm">
+                  <div>
+                    <p className="font-bold text-gray-900">{item.name}</p>
+                    <p className="text-xs text-gray-500 uppercase font-bold">{item.category}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xl font-black text-red-600">{item.stock}</p>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase">Restantes</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-orange-100">
           <h3 className="text-lg font-bold text-gray-900 mb-6">Desempenho Semanal</h3>
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data}>
+              <AreaChart data={stats.chartData}>
                 <defs>
                   <linearGradient id="colorVendas" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#f97316" stopOpacity={0.1}/>
@@ -174,7 +268,7 @@ export default function Dashboard({ user }: { user: any }) {
           <h3 className="text-lg font-bold text-gray-900 mb-6">Vendas vs OS</h3>
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data}>
+              <BarChart data={stats.chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} />
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} />

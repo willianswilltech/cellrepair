@@ -5,15 +5,22 @@ import {
   Mail, 
   Shield, 
   Save,
-  CheckCircle2
+  CheckCircle2,
+  Plus
 } from 'lucide-react';
 import { supabase } from '../supabase';
 
-export default function Profile({ user }: { user: any }) {
+export default function Profile({ user, onProfileUpdate }: { user: any, onProfileUpdate?: () => void }) {
   const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
+  const [storeName, setStoreName] = useState('');
+  const [cnpj, setCnpj] = useState('');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -22,35 +29,77 @@ export default function Profile({ user }: { user: any }) {
   }, [user]);
 
   const fetchProfile = async () => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-    
-    if (error) {
-      console.error('Error fetching profile:', error);
-    } else {
-      setProfile(data);
-      setName(data.name || '');
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // Profile not found, create it
+          const { data: newData, error: createError } = await supabase
+            .from('profiles')
+            .insert({
+              id: user.id,
+              name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuário',
+              email: user.email,
+              role: 'user'
+            })
+            .select()
+            .single();
+          
+          if (createError) throw createError;
+          setProfile(newData);
+          setName(newData.name || '');
+          setStoreName(newData.store_name || '');
+          setCnpj(newData.cnpj || '');
+          setPhone(newData.phone || '');
+          setAddress(newData.address || '');
+        } else {
+          throw error;
+        }
+      } else {
+        setProfile(data);
+        setName(data.name || '');
+        setStoreName(data.store_name || '');
+        setCnpj(data.cnpj || '');
+        setPhone(data.phone || '');
+        setAddress(data.address || '');
+      }
+    } catch (error) {
+      console.error('Error fetching/creating profile:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
+    setErrorMsg('');
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ name })
+        .update({ 
+          name,
+          store_name: storeName,
+          cnpj,
+          phone,
+          address
+        })
         .eq('id', user.id);
       
       if (error) throw error;
       
       setShowSuccess(true);
+      if (onProfileUpdate) onProfileUpdate();
       setTimeout(() => setShowSuccess(false), 3000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating profile:', error);
+      setErrorMsg(error.message || 'Erro ao atualizar perfil');
     } finally {
       setIsSaving(false);
     }
@@ -114,7 +163,27 @@ export default function Profile({ user }: { user: any }) {
     }
   };
 
-  if (!profile) return null;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500"></div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-red-500 font-bold">Erro ao carregar perfil. Por favor, tente novamente.</p>
+        <button 
+          onClick={fetchProfile}
+          className="mt-4 bg-orange-600 text-white px-6 py-2 rounded-xl font-bold"
+        >
+          Tentar Novamente
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
@@ -136,57 +205,94 @@ export default function Profile({ user }: { user: any }) {
       <div className="bg-white rounded-3xl shadow-xl border border-orange-100 overflow-hidden">
         <div className="p-8 bg-orange-50/50 border-b border-orange-100 flex items-center gap-6">
           <img 
-            src={user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${name || user.email}`} 
+            src={user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${storeName || name || user.email}`} 
             alt="Avatar" 
             className="w-24 h-24 rounded-full border-4 border-white shadow-lg"
           />
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">{name || 'Usuário'}</h2>
+            <h2 className="text-2xl font-bold text-gray-900">{storeName || name || 'Minha Loja'}</h2>
             <p className="text-gray-500 flex items-center gap-2">
               <Mail className="w-4 h-4" /> {user.email}
             </p>
           </div>
         </div>
 
-        <form onSubmit={handleSave} className="p-8 space-y-6">
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">Nome Completo</label>
-              <div className="relative">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input 
-                  type="text" 
-                  className="w-full pl-12 pr-4 py-3 bg-orange-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
+        <form onSubmit={handleSave} className="p-8 space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="col-span-2">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <User className="w-5 h-5 text-orange-600" />
+                Informações Pessoais
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Nome Completo</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-3 bg-orange-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Seu nome"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">E-mail</label>
+                  <input 
+                    type="email" 
+                    disabled
+                    className="w-full px-4 py-3 bg-gray-100 border-none rounded-2xl text-gray-500 cursor-not-allowed"
+                    value={user.email}
+                  />
+                </div>
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">E-mail</label>
-              <div className="relative">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input 
-                  type="email" 
-                  disabled
-                  className="w-full pl-12 pr-4 py-3 bg-gray-100 border-none rounded-2xl text-gray-500 cursor-not-allowed"
-                  value={user.email}
-                />
-              </div>
-              <p className="text-xs text-gray-400 mt-1">O e-mail não pode ser alterado.</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">Cargo / Permissão</label>
-              <div className="relative">
-                <Shield className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input 
-                  type="text" 
-                  disabled
-                  className="w-full pl-12 pr-4 py-3 bg-gray-100 border-none rounded-2xl text-gray-500 cursor-not-allowed"
-                  value={profile.role === 'admin' ? 'Administrador' : 'Usuário'}
-                />
+            <div className="col-span-2 pt-4 border-t border-orange-100">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Shield className="w-5 h-5 text-orange-600" />
+                Dados da Empresa (Recibos)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Nome da Loja</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-3 bg-orange-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={storeName}
+                    onChange={(e) => setStoreName(e.target.value)}
+                    placeholder="Ex: Assistência Técnica XYZ"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">CNPJ</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-3 bg-orange-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={cnpj}
+                    onChange={(e) => setCnpj(e.target.value)}
+                    placeholder="00.000.000/0000-00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Telefone de Contato</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-3 bg-orange-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Endereço Completo</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-4 py-3 bg-orange-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Rua, Número, Bairro, Cidade - UF"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -205,6 +311,10 @@ export default function Profile({ user }: { user: any }) {
               </>
             )}
           </button>
+
+          {errorMsg && (
+            <p className="text-center text-red-600 font-bold text-sm animate-bounce">{errorMsg}</p>
+          )}
         </form>
       </div>
 

@@ -52,7 +52,7 @@ export default function Cashier({ user }: { user: any }) {
   const [isClosingModal, setIsClosingModal] = useState(false);
   const [isMovementModal, setIsMovementModal] = useState(false);
   const [movementType, setMovementType] = useState('sangria');
-  const [formData, setFormData] = useState({ amount: '', description: '' });
+  const [formData, setFormData] = useState({ amount: '', description: '', payment_method: 'cash' });
   const [closingAmount, setClosingAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -350,7 +350,8 @@ export default function Cashier({ user }: { user: any }) {
           session_id: activeSession.id,
           type: movementType,
           amount: amount,
-          description: formData.description
+          description: formData.description,
+          payment_method: formData.payment_method
         }]);
 
       if (sbError) {
@@ -375,7 +376,7 @@ export default function Cashier({ user }: { user: any }) {
       }
 
       setIsMovementModal(false);
-      setFormData({ amount: '', description: '' });
+      setFormData({ amount: '', description: '', payment_method: 'cash' });
       checkActiveSession(); // Refresh active session data
       alert("Movimentação registrada com sucesso!");
     } catch (error: any) {
@@ -388,31 +389,33 @@ export default function Cashier({ user }: { user: any }) {
   };
 
   const calculateSessionSales = () => {
-    if (!activeSession) return { total: 0, cash: 0, other: 0 };
+    if (!activeSession) return { total: 0, cash: 0, pix: 0, card: 0 };
     const sessionStart = new Date(activeSession.opened_at);
     
     const sessionSales = sales.filter(s => new Date(s.createdAt) >= sessionStart);
     const sessionOrders = serviceOrders.filter(o => new Date(o.updatedAt || o.createdAt) >= sessionStart);
     
-    const salesTotal = sessionSales.reduce((acc, curr) => acc + (curr.total || 0), 0);
-    const salesCash = sessionSales.filter(s => s.paymentMethod === 'cash').reduce((acc, curr) => acc + (curr.total || 0), 0);
+    const allSessionTransactions = [
+      ...sessionSales.map(s => ({ ...s, total: s.total || 0, payment_method: s.paymentMethod || 'cash' })),
+      ...sessionOrders.map(o => ({ ...o, total: o.totalValue || 0, payment_method: o.payment_method || 'cash' }))
+    ];
+
+    const total = allSessionTransactions.reduce((acc, t) => acc + t.total, 0);
+    const cash = allSessionTransactions.filter(t => t.payment_method === 'cash').reduce((acc, t) => acc + t.total, 0);
+    const pix = allSessionTransactions.filter(t => t.payment_method === 'pix').reduce((acc, t) => acc + t.total, 0);
+    const card = allSessionTransactions.filter(t => t.payment_method === 'credit_card' || t.payment_method === 'debit_card').reduce((acc, t) => acc + t.total, 0);
     
-    const ordersTotal = sessionOrders.reduce((acc, curr) => acc + (curr.totalValue || 0), 0);
-    const ordersCash = sessionOrders.filter(o => o.payment_method === 'cash' || !o.payment_method).reduce((acc, curr) => acc + (curr.totalValue || 0), 0);
-    
-    return {
-      total: salesTotal + ordersTotal,
-      cash: salesCash + ordersCash,
-      other: (salesTotal + ordersTotal) - (salesCash + ordersCash)
-    };
+    return { total, cash, pix, card };
   };
 
   const calculateExpectedBalance = () => {
     if (!activeSession) return 0;
     const { cash: cashSales } = calculateSessionSales();
-    const movementsTotal = movements.reduce((acc, curr) => {
-      return acc + (curr.type === 'suprimento' ? curr.amount : -curr.amount);
-    }, 0);
+    const movementsTotal = movements
+      .filter(m => m.payment_method === 'cash' || !m.payment_method) // Include legacy movements as cash
+      .reduce((acc, curr) => {
+        return acc + (curr.type === 'suprimento' ? curr.amount : -curr.amount);
+      }, 0);
     
     return activeSession.initial_amount + cashSales + movementsTotal;
   };
@@ -443,7 +446,7 @@ export default function Cashier({ user }: { user: any }) {
   // Combine and sort transactions
   const allTransactions = [
     ...filteredSales.map(s => ({ ...s, type: 'sale', label: 'Venda PDV' })),
-    ...filteredOrders.map(o => ({ ...o, type: 'order', label: 'Ordem de Serviço', total: o.totalValue, payment_method: 'cash' })) // Assuming cash for OS for now or we could add a field
+    ...filteredOrders.map(o => ({ ...o, type: 'order', label: 'Ordem de Serviço', total: o.totalValue, payment_method: o.payment_method || 'cash' }))
   ].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
 
   const totalRevenue = allTransactions.reduce((acc, curr) => acc + (curr.total || 0), 0);
@@ -613,14 +616,18 @@ export default function Cashier({ user }: { user: any }) {
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 w-full lg:w-auto">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 w-full lg:w-auto">
                 <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
                   <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Saldo Inicial</p>
                   <p className="text-lg font-black text-orange-900">{formatCurrency(activeSession.initial_amount)}</p>
                 </div>
                 <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
-                  <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vendas (Total)</p>
-                  <p className="text-lg font-black text-orange-900">{formatCurrency(calculateSessionSales().total)}</p>
+                  <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vendas (Cash)</p>
+                  <p className="text-lg font-black text-orange-900">{formatCurrency(calculateSessionSales().cash)}</p>
+                </div>
+                <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
+                  <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vendas (PIX)</p>
+                  <p className="text-lg font-black text-orange-900">{formatCurrency(calculateSessionSales().pix)}</p>
                 </div>
                 <div className="text-center bg-white p-3 rounded-2xl border border-orange-100">
                   <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Suprimentos (+)</p>
@@ -832,7 +839,10 @@ export default function Cashier({ user }: { user: any }) {
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-xs font-bold px-2 py-1 bg-gray-100 text-gray-600 rounded-lg uppercase">
-                          Dinheiro
+                          {movement.payment_method === 'cash' ? 'Dinheiro' : 
+                           movement.payment_method === 'pix' ? 'PIX' : 
+                           movement.payment_method === 'credit_card' ? 'Crédito' : 
+                           movement.payment_method === 'debit_card' ? 'Débito' : 'Dinheiro'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -1052,18 +1062,34 @@ export default function Cashier({ user }: { user: any }) {
               </button>
             </div>
             <form onSubmit={(e) => { e.preventDefault(); handleAddMovement(); }} className="p-6 space-y-4 overflow-y-auto flex-1">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Valor</label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                  <input 
-                    type="text" 
-                    className="w-full pl-10 pr-4 py-3 bg-orange-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-lg"
-                    placeholder="R$ 0,00"
-                    value={formData.amount}
-                    onChange={e => setFormData({...formData, amount: formatCurrencyInput(e.target.value)})}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Valor</label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <input 
+                      type="text" 
+                      className="w-full pl-10 pr-4 py-3 bg-orange-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-lg"
+                      placeholder="R$ 0,00"
+                      value={formData.amount}
+                      onChange={e => setFormData({...formData, amount: formatCurrencyInput(e.target.value)})}
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Método</label>
+                  <select
+                    className="w-full px-4 py-3 bg-orange-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-sm h-[52px]"
+                    value={formData.payment_method}
+                    onChange={e => setFormData({...formData, payment_method: e.target.value})}
                     required
-                  />
+                  >
+                    <option value="cash">Dinheiro</option>
+                    <option value="pix">PIX</option>
+                    <option value="credit_card">Cartão de Crédito</option>
+                    <option value="debit_card">Cartão de Débito</option>
+                  </select>
                 </div>
               </div>
               <div>

@@ -14,28 +14,40 @@ import {
   AlertTriangle,
   X,
   Lock,
-  History
+  History,
+  Printer
 } from 'lucide-react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { supabase } from '../supabase';
 import { Product, SaleItem } from '../types';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatDate } from '../utils/format';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
-export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab: string) => void }) {
+export default function POS({ user, onNavigate, isActive }: { user: any, onNavigate?: (tab: string) => void, isActive?: boolean }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [profile, setProfile] = useState<any>(null);
   const [cart, setCart] = useState<SaleItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit_card' | 'debit_card' | 'pix'>('cash');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [lastSale, setLastSale] = useState<any>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [activeSession, setActiveSession] = useState<any>(null);
-  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isActive && !isLoading && activeSession && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [isActive, isLoading, activeSession]);
 
   const checkActiveSession = async () => {
-    setIsCheckingSession(true);
     try {
       const { data, error } = await supabase
         .from('cashier_sessions')
@@ -48,8 +60,6 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
       setActiveSession(data);
     } catch (error) {
       console.error("Erro ao verificar sessão:", error);
-    } finally {
-      setIsCheckingSession(false);
     }
   };
 
@@ -67,7 +77,8 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
       .from('products')
       .select('*')
       .eq('user_id', user.id)
-      .order('name');
+      .order('name')
+      .limit(100);
     
     if (error) {
       console.error('Error fetching products:', error);
@@ -90,6 +101,20 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
     }
   };
 
+  const fetchProfile = async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+    
+    if (error) {
+      console.error('Error fetching profile:', error);
+    } else {
+      setProfile(data);
+    }
+  };
+
   const addToCart = (product: Product) => {
     const existing = cart.find(item => item.productId === product.id);
     if (existing) {
@@ -103,6 +128,7 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
         productId: product.id!,
         name: product.name,
         price: product.price,
+        cost: product.cost,
         quantity: 1
       }]);
     }
@@ -185,8 +211,9 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
       }
 
       setCart([]);
+      setLastSale({ items: cart, total, paymentMethod, date: new Date() });
       setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
+      setTimeout(() => setShowSuccess(false), 5000);
     } catch (error: any) {
       console.error("Erro detalhado no checkout:", error);
       alert("❌ Erro ao finalizar venda:\n\n" + (error.message || "Erro desconhecido. Verifique o console para mais detalhes."));
@@ -196,33 +223,17 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
   }, [cart, total, paymentMethod, activeSession, user, isProcessing]);
 
   useEffect(() => {
-    checkActiveSession();
-
-    const sessionChannel = supabase
-      .channel('pos_session_check')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cashier_sessions' }, () => {
-        checkActiveSession();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(sessionChannel);
+    const init = async () => {
+      setIsLoading(true);
+      await Promise.all([
+        fetchProducts(),
+        fetchCategories(),
+        checkActiveSession(),
+        fetchProfile()
+      ]);
+      setIsLoading(false);
     };
-  }, []);
-
-  useEffect(() => {
-    if (searchTerm.trim().length >= 3) {
-      const exactMatch = products.find(p => p.barcode === searchTerm.trim());
-      if (exactMatch) {
-        addToCart(exactMatch);
-        setSearchTerm('');
-      }
-    }
-  }, [searchTerm, products]);
-
-  useEffect(() => {
-    fetchProducts();
-    fetchCategories();
+    init();
 
     // @ts-ignore
     const channel = supabase
@@ -235,13 +246,31 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
       })
       .subscribe();
 
+    const sessionChannel = supabase
+      .channel('pos_session_check')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cashier_sessions' }, () => {
+        checkActiveSession();
+      })
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(sessionChannel);
       if (scannerRef.current) {
         scannerRef.current.clear();
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (searchTerm.trim().length >= 3) {
+      const exactMatch = products.find(p => p.barcode === searchTerm.trim());
+      if (exactMatch) {
+        addToCart(exactMatch);
+        setSearchTerm('');
+      }
+    }
+  }, [searchTerm, products]);
 
   useEffect(() => {
     if (isScanning) {
@@ -293,6 +322,10 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
         e.preventDefault();
       }
 
+      if (e.key === 'Escape') {
+        setIsScanning(false);
+      }
+
       if (e.key === 'F1') setPaymentMethod('cash');
       if (e.key === 'F2') setPaymentMethod('credit_card');
       if (e.key === 'F3') setPaymentMethod('debit_card');
@@ -324,13 +357,69 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
     }
   };
 
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (p.barcode && p.barcode.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredProducts = React.useMemo(() => {
+    return products.filter(p => {
+      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.barcode && p.barcode.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      const matchesCategory = !selectedCategory || p.category === selectedCategory;
+      
+      return matchesSearch && matchesCategory;
+    });
+  }, [products, searchTerm, selectedCategory]);
 
-  if (isCheckingSession) {
+  const printReceipt = (sale: any) => {
+    const doc = new jsPDF({
+      unit: 'mm',
+      format: [80, 200]
+    });
+
+    const storeName = profile?.store_name || 'CELLREPAIR PRO';
+    const storeCnpj = profile?.cnpj || '';
+    const storePhone = profile?.phone || '';
+    const storeAddress = profile?.address || '';
+
+    doc.setFontSize(12);
+    doc.text(storeName.toUpperCase(), 40, 10, { align: 'center' });
+    doc.setFontSize(8);
+    if (storeCnpj) doc.text(`CNPJ: ${storeCnpj}`, 40, 15, { align: 'center' });
+    if (storePhone) doc.text(`Tel: ${storePhone}`, 40, 20, { align: 'center' });
+    if (storeAddress) {
+      const splitAddress = doc.splitTextToSize(storeAddress, 70);
+      doc.text(splitAddress, 40, 25, { align: 'center' });
+    }
+    
+    const startY = storeAddress ? 35 : 25;
+    doc.text('Cupom Não Fiscal', 40, startY, { align: 'center' });
+    doc.text('------------------------------------------', 40, startY + 5, { align: 'center' });
+    
+    let y = startY + 10;
+    doc.text(`Data: ${formatDate(sale.date)}`, 5, y);
+    y += 5;
+    doc.text(`Pagamento: ${sale.paymentMethod}`, 5, y);
+    y += 5;
+    doc.text('------------------------------------------', 40, y, { align: 'center' });
+    
+    y += 5;
+    sale.items.forEach((item: any) => {
+      doc.text(`${item.quantity}x ${item.name.substring(0, 20)}`, 5, y);
+      doc.text(`${formatCurrency(item.price * item.quantity)}`, 75, y, { align: 'right' });
+      y += 5;
+    });
+    
+    doc.text('------------------------------------------', 40, y, { align: 'center' });
+    y += 5;
+    doc.setFontSize(10);
+    doc.text(`TOTAL: ${formatCurrency(sale.total)}`, 5, y);
+    y += 10;
+    doc.setFontSize(8);
+    doc.text('Obrigado pela preferência!', 40, y, { align: 'center' });
+
+    doc.save(`Venda_${new Date().getTime()}.pdf`);
+  };
+
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500"></div>
@@ -359,39 +448,81 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
 
       {/* Product Selection */}
       <div className="lg:col-span-2 flex flex-col space-y-4">
-        <div className="flex gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input 
-              type="text" 
-              placeholder="Buscar produto por nome, categoria ou código..." 
-              className="w-full pl-10 pr-4 py-3 bg-orange-50/20 border border-orange-100 rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyDown={handleKeyDown}
-            />
-          </div>
-          <button 
-            onClick={() => setIsScanning(!isScanning)}
-            className={`px-6 py-3 rounded-2xl font-semibold flex items-center gap-2 transition-all shadow-sm ${
-              isScanning 
-                ? 'bg-red-100 text-red-600 border border-red-200' 
-                : 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-200'
-            }`}
-          >
-            {isScanning ? <X className="w-5 h-5" /> : <Camera className="w-5 h-5" />}
-            {isScanning ? 'Fechar Leitor' : 'Escanear'}
-          </button>
-          
-          {onNavigate && (
+        <div className="flex flex-col gap-4">
+          <div className="flex gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input 
+                ref={searchInputRef}
+                type="text" 
+                placeholder="Buscar produto por nome, categoria ou código..." 
+                className="w-full pl-10 pr-4 py-3 bg-orange-50/20 border border-orange-100 rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchTerm.trim()) {
+                    const exactMatch = products.find(p => 
+                      p.barcode === searchTerm.trim() || 
+                      p.name.toLowerCase() === searchTerm.trim().toLowerCase()
+                    );
+                    if (exactMatch) {
+                      addToCart(exactMatch);
+                      setSearchTerm('');
+                      e.preventDefault();
+                    }
+                  }
+                }}
+              />
+            </div>
             <button 
-              onClick={() => onNavigate('sales')}
-              className="px-6 py-3 bg-white border border-orange-100 text-orange-600 rounded-2xl font-semibold flex items-center gap-2 hover:bg-orange-50 transition-all shadow-sm"
+              onClick={() => setIsScanning(!isScanning)}
+              className={`px-6 py-3 rounded-2xl font-semibold flex items-center gap-2 transition-all shadow-sm ${
+                isScanning 
+                  ? 'bg-red-100 text-red-600 border border-red-200' 
+                  : 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-200'
+              }`}
             >
-              <History className="w-5 h-5" />
-              Histórico
+              {isScanning ? <X className="w-5 h-5" /> : <Camera className="w-5 h-5" />}
+              {isScanning ? 'Fechar' : 'Escanear'}
             </button>
-          )}
+            
+            {onNavigate && (
+              <button 
+                onClick={() => onNavigate('sales')}
+                className="px-6 py-3 bg-white border border-orange-100 text-orange-600 rounded-2xl font-semibold flex items-center gap-2 hover:bg-orange-50 transition-all shadow-sm"
+              >
+                <History className="w-5 h-5" />
+                Histórico
+              </button>
+            )}
+          </div>
+
+          {/* Category Filter */}
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            <button
+              onClick={() => setSelectedCategory(null)}
+              className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all border ${
+                selectedCategory === null 
+                  ? 'bg-orange-600 text-white border-orange-600 shadow-md' 
+                  : 'bg-white text-gray-600 border-orange-100 hover:border-orange-300'
+              }`}
+            >
+              Todos
+            </button>
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.name)}
+                className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all border ${
+                  selectedCategory === cat.name 
+                    ? 'bg-orange-600 text-white border-orange-600 shadow-md' 
+                    : 'bg-white text-gray-600 border-orange-100 hover:border-orange-300'
+              }`}
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
         </div>
 
         {isScanning && (
@@ -403,24 +534,24 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
           {filteredProducts.map((product) => (
             <button
               key={product.id}
               onClick={() => addToCart(product)}
               disabled={product.stock <= 0}
-              className="bg-orange-50/30 p-4 rounded-2xl border border-orange-100 hover:border-orange-500 hover:bg-orange-50 hover:shadow-md transition-all text-left group disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-blue-50/50 p-2 rounded-xl border border-blue-100 hover:border-blue-400 hover:bg-blue-100 hover:shadow-sm transition-all text-left group disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <div className="aspect-square bg-orange-50 rounded-xl mb-3 flex items-center justify-center group-hover:bg-orange-100 transition-colors">
-                <ShoppingCart className="w-8 h-8 text-orange-600" />
+              <div className="aspect-square bg-white rounded-lg mb-1.5 flex items-center justify-center group-hover:bg-blue-50 transition-colors w-8 h-8">
+                <ShoppingCart className="w-4 h-4 text-blue-600" />
               </div>
-              <h3 className="font-bold text-gray-900 truncate">{product.name}</h3>
-              <p className="text-xs text-gray-500 mb-2">{product.category}</p>
-              <div className="flex items-center justify-between">
-                <span className="text-orange-600 font-bold">{formatCurrency(product.price)}</span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${product.stock <= 5 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+              <h3 className="font-bold text-[11px] text-gray-900 leading-tight line-clamp-2 h-8 mb-1">{product.name}</h3>
+              <p className="text-[9px] text-blue-600 font-bold mb-1">{formatCurrency(product.price)}</p>
+              <div className="flex items-center justify-between mt-auto">
+                <span className={`text-[8px] font-bold px-1 py-0.5 rounded-md ${product.stock <= 5 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
                   {product.stock} un
                 </span>
+                <span className="text-[8px] text-gray-400 truncate max-w-[40px]">{product.category}</span>
               </div>
             </button>
           ))}
@@ -429,11 +560,25 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
 
       {/* Cart / Checkout */}
       <div className="bg-orange-50/10 rounded-3xl shadow-xl border border-orange-100 flex flex-col overflow-hidden">
-        <div className="p-6 border-b border-orange-50 bg-orange-50/50">
+        <div className="p-6 border-b border-orange-50 bg-orange-50/50 flex items-center justify-between">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <ShoppingCart className="w-6 h-6 text-orange-600" />
             Carrinho
+            {cart.length > 0 && (
+              <span className="bg-orange-100 text-orange-600 text-[10px] px-2 py-0.5 rounded-full">
+                {cart.reduce((acc, item) => acc + item.quantity, 0)} itens
+              </span>
+            )}
           </h2>
+          {cart.length > 0 && (
+            <button 
+              onClick={() => setCart([])}
+              className="text-xs font-bold text-red-500 hover:text-red-700 transition-colors flex items-center gap-1"
+            >
+              <Trash2 className="w-3 h-3" />
+              Limpar
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -534,6 +679,22 @@ export default function POS({ user, onNavigate }: { user: any, onNavigate?: (tab
             </div>
             <h2 className="text-4xl font-black">Venda Realizada!</h2>
             <p className="text-orange-100 text-xl">O estoque foi atualizado automaticamente.</p>
+            <div className="flex gap-4 justify-center pt-8">
+              <button 
+                onClick={() => printReceipt(lastSale)}
+                className="px-8 py-4 bg-white text-orange-600 rounded-2xl font-bold flex items-center gap-2 hover:bg-orange-50 transition-all shadow-xl"
+              >
+                <Printer className="w-6 h-6" />
+                Imprimir Recibo
+              </button>
+              <button 
+                onClick={() => setShowSuccess(false)}
+                className="px-8 py-4 bg-orange-700 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-orange-800 transition-all shadow-xl"
+              >
+                <X className="w-6 h-6" />
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}
