@@ -93,6 +93,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='customers' AND column_name='cep') THEN
     ALTER TABLE customers ADD COLUMN cep TEXT;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='customers' AND column_name='address_number') THEN
+    ALTER TABLE customers ADD COLUMN address_number TEXT;
+  END IF;
 END $$;
 
 -- Create sales table
@@ -163,12 +166,27 @@ BEGIN
   END IF;
 END $$;
 
-ALTER PUBLICATION supabase_realtime ADD TABLE categories;
-ALTER PUBLICATION supabase_realtime ADD TABLE products;
-ALTER PUBLICATION supabase_realtime ADD TABLE service_orders;
-ALTER PUBLICATION supabase_realtime ADD TABLE customers;
-ALTER PUBLICATION supabase_realtime ADD TABLE suppliers;
-ALTER PUBLICATION supabase_realtime ADD TABLE sales;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'categories') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE categories;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'products') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE products;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'service_orders') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE service_orders;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'customers') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE customers;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'suppliers') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE suppliers;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'sales') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE sales;
+  END IF;
+END $$;
 
 -- Function to handle updated_at
 CREATE OR REPLACE FUNCTION handle_updated_at()

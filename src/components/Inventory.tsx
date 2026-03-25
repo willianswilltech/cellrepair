@@ -14,7 +14,9 @@ import {
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { supabase } from '../supabase';
 import { Product, Category } from '../types';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatDate } from '../utils/format';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 export default function Inventory({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true);
@@ -374,6 +376,53 @@ export default function Inventory({ user }: { user: any }) {
     );
   }, [products, searchTerm]);
 
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    
+    doc.setFontSize(18);
+    doc.text('Relatório de Estoque', 14, 22);
+    
+    doc.setFontSize(11);
+    doc.text(`Data de Emissão: ${formatDate(new Date().toISOString())}`, 14, 30);
+    
+    const tableColumn = ["Produto", "Categoria", "Estoque", "Custo", "Preço Venda"];
+    const tableRows: any[] = [];
+    
+    let totalCost = 0;
+    let totalValue = 0;
+
+    filteredProducts.forEach(product => {
+      const productData = [
+        product.name,
+        product.category,
+        product.stock.toString(),
+        formatCurrency(product.cost),
+        formatCurrency(product.price)
+      ];
+      tableRows.push(productData);
+      totalCost += (Number(product.cost) * Number(product.stock));
+      totalValue += (Number(product.price) * Number(product.stock));
+    });
+
+    // @ts-ignore
+    doc.autoTable({
+      head: [tableColumn],
+      body: tableRows,
+      startY: 40,
+      theme: 'grid',
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [249, 115, 22] } // orange-500
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY || 40;
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Custo Total em Estoque: ${formatCurrency(totalCost)}`, 14, finalY + 10);
+    doc.text(`Valor Total de Venda: ${formatCurrency(totalValue)}`, 14, finalY + 18);
+
+    doc.save(`relatorio_estoque_${formatDate(new Date().toISOString()).replace(/\//g, '-')}.pdf`);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -389,17 +438,27 @@ export default function Inventory({ user }: { user: any }) {
           <h1 className="text-2xl font-bold text-gray-900">Estoque</h1>
           <p className="text-gray-500">Gerencie seus produtos e peças de reposição.</p>
         </div>
-        <button 
-          onClick={() => {
-            setEditingProduct(null);
-            setFormData({ name: '', description: '', price: 0, cost: 0, stock: 0, category: '', categoryId: '', barcode: '' });
-            setIsModalOpen(true);
-          }}
-          className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 shadow-lg shadow-orange-200 transition-all"
-        >
-          <Plus className="w-5 h-5" />
-          Novo Produto
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={exportToPDF}
+            className="px-4 py-3 bg-white border border-orange-200 hover:bg-orange-50 text-orange-600 rounded-xl font-semibold flex items-center gap-2 transition-all"
+            title="Exportar para PDF"
+          >
+            <Package className="w-5 h-5" />
+            Exportar PDF
+          </button>
+          <button 
+            onClick={() => {
+              setEditingProduct(null);
+              setFormData({ name: '', description: '', price: 0, cost: 0, stock: 0, category: '', categoryId: '', barcode: '' });
+              setIsModalOpen(true);
+            }}
+            className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 shadow-lg shadow-orange-200 transition-all"
+          >
+            <Plus className="w-5 h-5" />
+            Novo Produto
+          </button>
+        </div>
       </header>
 
       <div className="bg-white rounded-2xl shadow-sm border border-orange-100 overflow-hidden">

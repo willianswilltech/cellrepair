@@ -58,6 +58,7 @@ export interface Customer {
   cep?: string;
   document?: string;
   address?: string;
+  address_number?: string;
   createdAt?: any;
 }
 

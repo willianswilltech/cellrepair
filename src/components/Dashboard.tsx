@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { formatCurrency } from '../utils/format';
-import { subDays, format, eachDayOfInterval, isWithinInterval, startOfDay, endOfDay, parseISO } from 'date-fns';
+import { subDays, format, eachDayOfInterval, isWithinInterval, startOfDay, endOfDay, parseISO, startOfWeek, startOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const COLORS = ['#f97316', '#fb923c', '#fdba74', '#fed7aa', '#ffedd5', '#ea580c', '#c2410c', '#9a3412'];
@@ -41,7 +41,7 @@ export default function Dashboard({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState({
-    start: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
+    start: format(new Date(), 'yyyy-MM-dd'),
     end: format(new Date(), 'yyyy-MM-dd')
   });
 
@@ -269,36 +269,75 @@ export default function Dashboard({ user }: { user: any }) {
           <p className="text-gray-500 font-medium">Gestão e indicadores da sua assistência.</p>
         </div>
         
-        <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-2xl shadow-sm border border-orange-100">
-          <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 rounded-xl border border-orange-100">
-            <Calendar className="w-4 h-4 text-orange-600" />
-            <input 
-              type="date" 
-              value={dateRange.start}
-              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-              className="bg-transparent border-none text-sm font-bold text-orange-900 focus:ring-0 p-0"
-            />
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setDateRange({
+                start: format(new Date(), 'yyyy-MM-dd'),
+                end: format(new Date(), 'yyyy-MM-dd')
+              })}
+              className="px-3 py-1.5 text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+            >
+              Hoje
+            </button>
+            <button
+              onClick={() => setDateRange({
+                start: format(startOfWeek(new Date(), { weekStartsOn: 0 }), 'yyyy-MM-dd'),
+                end: format(new Date(), 'yyyy-MM-dd')
+              })}
+              className="px-3 py-1.5 text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+            >
+              Esta Semana
+            </button>
+            <button
+              onClick={() => setDateRange({
+                start: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
+                end: format(new Date(), 'yyyy-MM-dd')
+              })}
+              className="px-3 py-1.5 text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+            >
+              Este Mês
+            </button>
+            <button
+              onClick={() => setDateRange({
+                start: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
+                end: format(new Date(), 'yyyy-MM-dd')
+              })}
+              className="px-3 py-1.5 text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+            >
+              Últimos 30 Dias
+            </button>
+            <button
+              onClick={() => setDateRange({
+                start: '2000-01-01',
+                end: format(new Date(), 'yyyy-MM-dd')
+              })}
+              className="px-3 py-1.5 text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+            >
+              Tempo Total
+            </button>
           </div>
-          <span className="text-gray-400 font-bold">até</span>
-          <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 rounded-xl border border-orange-100">
-            <Calendar className="w-4 h-4 text-orange-600" />
-            <input 
-              type="date" 
-              value={dateRange.end}
-              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-              className="bg-transparent border-none text-sm font-bold text-orange-900 focus:ring-0 p-0"
-            />
+          <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-2xl shadow-sm border border-orange-100">
+            <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 rounded-xl border border-orange-100">
+              <Calendar className="w-4 h-4 text-orange-600" />
+              <input 
+                type="date" 
+                value={dateRange.start}
+                onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                className="bg-transparent border-none text-sm font-bold text-orange-900 focus:ring-0 p-0"
+              />
+            </div>
+            <span className="text-gray-400 font-bold">até</span>
+            <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 rounded-xl border border-orange-100">
+              <Calendar className="w-4 h-4 text-orange-600" />
+              <input 
+                type="date" 
+                value={dateRange.end}
+                onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                className="bg-transparent border-none text-sm font-bold text-orange-900 focus:ring-0 p-0"
+              />
+            </div>
           </div>
-          <button 
-            onClick={() => setDateRange({
-              start: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
-              end: format(new Date(), 'yyyy-MM-dd')
-            })}
-            className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-gray-400 hover:text-gray-600"
-            title="Resetar Filtro"
-          >
-            <History className="w-5 h-5" />
-          </button>
         </div>
       </header>
 

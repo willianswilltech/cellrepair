@@ -540,18 +540,15 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
               key={product.id}
               onClick={() => addToCart(product)}
               disabled={product.stock <= 0}
-              className="bg-blue-50/50 p-2 rounded-xl border border-blue-100 hover:border-blue-400 hover:bg-blue-100 hover:shadow-sm transition-all text-left group disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 hover:border-blue-400 hover:bg-blue-100 hover:shadow-sm transition-all text-left group disabled:opacity-50 disabled:cursor-not-allowed flex flex-col min-h-[110px]"
             >
-              <div className="aspect-square bg-white rounded-lg mb-1.5 flex items-center justify-center group-hover:bg-blue-50 transition-colors w-8 h-8">
-                <ShoppingCart className="w-4 h-4 text-blue-600" />
-              </div>
-              <h3 className="font-bold text-[11px] text-gray-900 leading-tight line-clamp-2 h-8 mb-1">{product.name}</h3>
-              <p className="text-[9px] text-blue-600 font-bold mb-1">{formatCurrency(product.price)}</p>
-              <div className="flex items-center justify-between mt-auto">
-                <span className={`text-[8px] font-bold px-1 py-0.5 rounded-md ${product.stock <= 5 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+              <h3 className="font-bold text-sm text-gray-900 leading-tight line-clamp-2 mb-2 flex-1">{product.name}</h3>
+              <p className="text-sm text-blue-600 font-black mb-2">{formatCurrency(product.price)}</p>
+              <div className="flex items-center justify-between w-full mt-auto">
+                <span className={`text-[10px] font-bold px-2 py-1 rounded-md ${product.stock <= 5 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
                   {product.stock} un
                 </span>
-                <span className="text-[8px] text-gray-400 truncate max-w-[40px]">{product.category}</span>
+                <span className="text-[10px] text-gray-500 truncate max-w-[70px] font-medium">{product.category}</span>
               </div>
             </button>
           ))}

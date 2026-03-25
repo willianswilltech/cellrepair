@@ -19,7 +19,9 @@ import {
   History,
   AlertCircle,
   AlertTriangle,
-  X
+  X,
+  Edit,
+  Trash2
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -58,8 +60,14 @@ export default function Cashier({ user }: { user: any }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
 
+  const [isEditSessionModalOpen, setIsEditSessionModalOpen] = useState(false);
+  const [sessionToEdit, setSessionToEdit] = useState<any>(null);
+  const [isDeleteSessionModalOpen, setIsDeleteSessionModalOpen] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<any>(null);
+  const [editSessionData, setEditSessionData] = useState({ initial_amount: '', actual_amount: '', notes: '' });
+
   useEffect(() => {
-    if (isOpeningModal || isClosingModal || isMovementModal) {
+    if (isOpeningModal || isClosingModal || isMovementModal || isEditSessionModalOpen || isDeleteSessionModalOpen) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'unset';
@@ -67,7 +75,7 @@ export default function Cashier({ user }: { user: any }) {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [isOpeningModal, isClosingModal, isMovementModal]);
+  }, [isOpeningModal, isClosingModal, isMovementModal, isEditSessionModalOpen, isDeleteSessionModalOpen]);
 
   const formatCurrencyInput = (value: string) => {
     if (!value) return '';
@@ -393,6 +401,86 @@ export default function Cashier({ user }: { user: any }) {
     } finally {
       setIsSubmitting(false);
       submittingRef.current = false;
+    }
+  };
+
+  const handleEditSession = (session: any) => {
+    setSessionToEdit(session);
+    setEditSessionData({
+      initial_amount: formatCurrencyInput((session.initial_amount * 100).toString()),
+      actual_amount: formatCurrencyInput((session.actual_amount * 100).toString()),
+      notes: session.notes || ''
+    });
+    setIsEditSessionModalOpen(true);
+  };
+
+  const handleDeleteSession = (session: any) => {
+    setSessionToDelete(session);
+    setIsDeleteSessionModalOpen(true);
+  };
+
+  const confirmEditSession = async () => {
+    if (!sessionToEdit) return;
+    setIsSubmitting(true);
+    try {
+      const initialAmount = parseCurrencyInput(editSessionData.initial_amount);
+      const actualAmount = parseCurrencyInput(editSessionData.actual_amount);
+      
+      const expectedAmount = initialAmount + (sessionToEdit.total_sales || 0) + (sessionToEdit.total_suprimentos || 0) - (sessionToEdit.total_sangrias || 0);
+      const difference = actualAmount - expectedAmount;
+
+      const { error } = await supabase
+        .from('cashier_sessions')
+        .update({
+          initial_amount: initialAmount,
+          actual_amount: actualAmount,
+          expected_amount: expectedAmount,
+          difference: difference,
+          notes: editSessionData.notes
+        })
+        .eq('id', sessionToEdit.id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      
+      setIsEditSessionModalOpen(false);
+      setSessionToEdit(null);
+      fetchSessionsHistory();
+    } catch (err: any) {
+      console.error("Erro ao editar sessão:", err);
+      setError(`Erro ao editar sessão: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const confirmDeleteSession = async () => {
+    if (!sessionToDelete) return;
+    setIsSubmitting(true);
+    try {
+      // Delete movements first
+      await supabase
+        .from('cashier_movements')
+        .delete()
+        .eq('session_id', sessionToDelete.id);
+
+      // Then delete session
+      const { error } = await supabase
+        .from('cashier_sessions')
+        .delete()
+        .eq('id', sessionToDelete.id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      
+      setIsDeleteSessionModalOpen(false);
+      setSessionToDelete(null);
+      fetchSessionsHistory();
+    } catch (err: any) {
+      console.error("Erro ao excluir sessão:", err);
+      setError(`Erro ao excluir sessão: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1026,13 +1114,29 @@ export default function Cashier({ user }: { user: any }) {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button 
-                        onClick={() => setSelectedSessionDetails(session)}
-                        className="p-2 text-orange-600 hover:bg-orange-100 rounded-xl transition-colors"
-                        title="Ver Detalhes"
-                      >
-                        <Search className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button 
+                          onClick={() => setSelectedSessionDetails(session)}
+                          className="p-2 text-orange-600 hover:bg-orange-100 rounded-xl transition-colors"
+                          title="Ver Detalhes"
+                        >
+                          <Search className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleEditSession(session)}
+                          className="p-2 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors"
+                          title="Editar"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteSession(session)}
+                          className="p-2 text-red-600 hover:bg-red-100 rounded-xl transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1296,6 +1400,151 @@ export default function Cashier({ user }: { user: any }) {
                 className="w-full py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-100 transition-colors"
               >
                 Fechar Detalhes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Session Modal */}
+      {isEditSessionModalOpen && sessionToEdit && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <div className="flex items-center gap-3 text-blue-600">
+                <Edit className="w-6 h-6" />
+                <h2 className="text-xl font-black uppercase tracking-tight">Editar Fechamento</h2>
+              </div>
+              <button 
+                onClick={() => setIsEditSessionModalOpen(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+                disabled={isSubmitting}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Valor Inicial (Abertura)</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <DollarSign className="w-5 h-5 text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    value={editSessionData.initial_amount}
+                    onChange={e => setEditSessionData({...editSessionData, initial_amount: formatCurrencyInput(e.target.value)})}
+                    className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent font-bold text-gray-900"
+                    placeholder="R$ 0,00"
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Valor Informado (Fechamento)</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <DollarSign className="w-5 h-5 text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    value={editSessionData.actual_amount}
+                    onChange={e => setEditSessionData({...editSessionData, actual_amount: formatCurrencyInput(e.target.value)})}
+                    className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent font-bold text-gray-900"
+                    placeholder="R$ 0,00"
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Observações</label>
+                <textarea
+                  value={editSessionData.notes}
+                  onChange={e => setEditSessionData({...editSessionData, notes: e.target.value})}
+                  className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent font-medium text-gray-900 resize-none h-24"
+                  placeholder="Motivo da edição..."
+                  disabled={isSubmitting}
+                />
+              </div>
+            </div>
+
+            <div className="p-6 bg-gray-50 border-t border-gray-100 flex gap-3">
+              <button 
+                onClick={() => setIsEditSessionModalOpen(false)}
+                className="flex-1 py-3 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-100 transition-colors"
+                disabled={isSubmitting}
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmEditSession}
+                disabled={isSubmitting || !editSessionData.initial_amount || !editSessionData.actual_amount}
+                className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  'Salvar Alterações'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Session Modal */}
+      {isDeleteSessionModalOpen && sessionToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-red-100 flex justify-between items-center bg-red-50/50">
+              <div className="flex items-center gap-3 text-red-600">
+                <AlertTriangle className="w-6 h-6" />
+                <h2 className="text-xl font-black uppercase tracking-tight">Excluir Fechamento</h2>
+              </div>
+              <button 
+                onClick={() => setIsDeleteSessionModalOpen(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+                disabled={isSubmitting}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <p className="text-gray-600 font-medium">
+                Tem certeza que deseja excluir o fechamento do dia <strong className="text-gray-900">{format(parseISO(sessionToDelete.opened_at), "dd/MM/yyyy")}</strong>?
+              </p>
+              <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                <p className="text-sm text-red-800 font-medium">
+                  <strong>Atenção:</strong> Esta ação é irreversível. Todas as movimentações (suprimentos e sangrias) associadas a este fechamento também serão excluídas. As vendas e ordens de serviço não serão afetadas.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 bg-gray-50 border-t border-gray-100 flex gap-3">
+              <button 
+                onClick={() => setIsDeleteSessionModalOpen(false)}
+                className="flex-1 py-3 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-100 transition-colors"
+                disabled={isSubmitting}
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmDeleteSession}
+                disabled={isSubmitting}
+                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  <>
+                    <Trash2 className="w-5 h-5" />
+                    Excluir Fechamento
+                  </>
+                )}
               </button>
             </div>
           </div>

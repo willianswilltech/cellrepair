@@ -21,7 +21,9 @@ import {
   ShieldCheck,
   UserCheck,
   Camera as CameraIcon,
-  X
+  X,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { ServiceOrder, Customer } from '../types';
@@ -44,6 +46,7 @@ export default function ServiceOrders({ user }: { user: any }) {
   const [deliveringOrder, setDeliveringOrder] = useState<ServiceOrder | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cash' | 'credit_card' | 'debit_card' | 'pix'>('cash');
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
 
   const [editingOrder, setEditingOrder] = useState<ServiceOrder | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -370,8 +373,18 @@ export default function ServiceOrders({ user }: { user: any }) {
     await updateStatus(deliveringOrder.id!, 'delivered', selectedPaymentMethod);
   };
 
-  const notifyWhatsApp = (order: ServiceOrder) => {
-    const message = `Olá ${order.customerName}, seu aparelho ${order.device} já está pronto na CellRepair! Valor total: ${formatCurrency(order.totalValue)}. Garantia de ${order.warrantyPeriod || '90 dias'}. Pode vir retirar quando quiser!`;
+  const notifyWhatsApp = (order: ServiceOrder, type: 'budget' | 'ready' | 'delivered' = 'ready') => {
+    let message = '';
+    const storeName = profile?.store_name || 'CellRepair';
+    
+    if (type === 'budget') {
+      message = `Olá ${order.customerName}, o orçamento do seu ${order.device} ficou em ${formatCurrency(order.totalValue)}. Podemos aprovar o serviço? - ${storeName}`;
+    } else if (type === 'ready') {
+      message = `Olá ${order.customerName}, seu aparelho ${order.device} já está pronto na ${storeName}! Valor total: ${formatCurrency(order.totalValue)}. Garantia de ${order.warrantyPeriod || '90 dias'}. Pode vir retirar quando quiser!`;
+    } else if (type === 'delivered') {
+      message = `Olá ${order.customerName}, obrigado por escolher a ${storeName}! Seu aparelho ${order.device} foi entregue. Qualquer dúvida, estamos à disposição. Garantia: ${order.warrantyPeriod || '90 dias'}.`;
+    }
+    
     const phone = order.customerPhone.replace(/\D/g, '');
     window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
@@ -495,6 +508,60 @@ export default function ServiceOrders({ user }: { user: any }) {
     o.device.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    
+    doc.setFontSize(18);
+    doc.text('Relatório de Ordens de Serviço', 14, 22);
+    
+    doc.setFontSize(11);
+    doc.text(`Data de Emissão: ${formatDate(new Date().toISOString())}`, 14, 30);
+    
+    const tableColumn = ["Cliente", "Aparelho", "Status", "Total"];
+    const tableRows: any[] = [];
+    
+    let totalValue = 0;
+
+    filteredOrders.forEach(order => {
+      const getStatusLabel = (status: string) => {
+        switch (status) {
+          case 'pending': return 'Pendente';
+          case 'in-progress': return 'Em Reparo';
+          case 'completed': return 'Pronto';
+          case 'delivered': return 'Entregue';
+          case 'cancelled': return 'Cancelado';
+          default: return status;
+        }
+      };
+
+      const orderData = [
+        order.customerName,
+        order.device,
+        getStatusLabel(order.status),
+        formatCurrency(order.totalValue)
+      ];
+      tableRows.push(orderData);
+      totalValue += Number(order.totalValue);
+    });
+
+    // @ts-ignore
+    doc.autoTable({
+      head: [tableColumn],
+      body: tableRows,
+      startY: 40,
+      theme: 'grid',
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [249, 115, 22] } // orange-500
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY || 40;
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Total em OS: ${formatCurrency(totalValue)}`, 14, finalY + 10);
+
+    doc.save(`relatorio_os_${format(new Date(), 'dd-MM-yyyy')}.pdf`);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -510,33 +577,59 @@ export default function ServiceOrders({ user }: { user: any }) {
           <h1 className="text-2xl font-bold text-gray-900">Ordens de Serviço</h1>
           <p className="text-gray-500">Acompanhe e gerencie os reparos dos clientes.</p>
         </div>
-        <button 
-          onClick={() => {
-            setEditingOrder(null);
-            setFormData({ 
-              customerId: '', 
-              customerName: '', 
-              customerPhone: '', 
-              cep: '', 
-              address: '', 
-              device: '', 
-              problem: '', 
-              observations: '', 
-              totalValue: 0, 
-              status: 'pending',
-              warrantyPeriod: '90 dias',
-              technicianId: '',
-              technicianName: '',
-              laborValue: 0,
-              partsUsed: []
-            });
-            setIsModalOpen(true);
-          }}
-          className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 shadow-lg shadow-orange-200 transition-all"
-        >
-          <Plus className="w-5 h-5" />
-          Nova OS
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex bg-gray-100 p-1 rounded-xl">
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}
+              title="Visualização em Lista"
+            >
+              <List className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setViewMode('kanban')}
+              className={`p-2 rounded-lg transition-all ${viewMode === 'kanban' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}
+              title="Visualização Kanban"
+            >
+              <LayoutGrid className="w-5 h-5" />
+            </button>
+          </div>
+          <button
+            onClick={exportToPDF}
+            className="px-4 py-3 bg-white border border-orange-200 hover:bg-orange-50 text-orange-600 rounded-xl font-semibold flex items-center gap-2 transition-all"
+            title="Exportar para PDF"
+          >
+            <Printer className="w-5 h-5" />
+            Exportar PDF
+          </button>
+          <button 
+            onClick={() => {
+              setEditingOrder(null);
+              setFormData({ 
+                customerId: '', 
+                customerName: '', 
+                customerPhone: '', 
+                cep: '', 
+                address: '', 
+                device: '', 
+                problem: '', 
+                observations: '', 
+                totalValue: 0, 
+                status: 'pending',
+                warrantyPeriod: '90 dias',
+                technicianId: '',
+                technicianName: '',
+                laborValue: 0,
+                partsUsed: []
+              });
+              setIsModalOpen(true);
+            }}
+            className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 shadow-lg shadow-orange-200 transition-all"
+          >
+            <Plus className="w-5 h-5" />
+            Nova OS
+          </button>
+        </div>
       </header>
 
       <div className="flex gap-4 overflow-x-auto pb-2">
@@ -554,133 +647,266 @@ export default function ServiceOrders({ user }: { user: any }) {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-orange-100 overflow-hidden">
-        <div className="p-4 border-b border-orange-50">
-          <div className="relative max-w-md">
+      {viewMode === 'list' ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-orange-100 overflow-hidden">
+          <div className="p-4 border-b border-orange-50">
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input 
+                type="text" 
+                placeholder="Buscar por cliente ou aparelho..." 
+                className="w-full pl-10 pr-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="divide-y divide-orange-50">
+            {filteredOrders.map((order) => (
+              <div key={order.id} className="p-6 hover:bg-orange-50/30 transition-colors">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="flex items-start gap-4">
+                    <div className="bg-orange-100 p-3 rounded-2xl">
+                      <Smartphone className="w-6 h-6 text-orange-600" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-bold text-gray-900">{order.customerName}</h3>
+                        {getStatusBadge(order.status)}
+                      </div>
+                      <p className="text-sm text-gray-600 flex items-center gap-2">
+                        <Smartphone className="w-4 h-4" /> {order.device}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Criada em {formatDate(order.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4 lg:gap-8">
+                    <div className="text-right">
+                      <p className="text-xs font-bold text-gray-400 uppercase">Valor Total</p>
+                      <p className="text-lg font-bold text-orange-600">{formatCurrency(order.totalValue)}</p>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => {
+                          setEditingOrder(order);
+                          setFormData({
+                            customerId: order.customerId || '',
+                            customerName: order.customerName || '',
+                            customerPhone: order.customerPhone || '',
+                            cep: order.cep || '',
+                            address: order.address || '',
+                            device: order.device || '',
+                            problem: order.problem || '',
+                            observations: order.observations || '',
+                            totalValue: order.totalValue || 0,
+                            laborValue: (order.totalValue || 0) - (order.partsUsed || []).reduce((acc: number, p: any) => acc + (p.price * p.quantity), 0),
+                            status: order.status || 'pending',
+                            warrantyPeriod: order.warrantyPeriod || '90 dias',
+                            technicianId: order.technicianId || '',
+                            technicianName: order.technicianName || '',
+                            partsUsed: order.partsUsed || []
+                          });
+                          setIsModalOpen(true);
+                        }}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                        title="Editar OS"
+                      >
+                        <Edit2 className="w-5 h-5" />
+                      </button>
+                      <button 
+                        onClick={() => updateStatus(order.id!, 'in-progress')}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                        title="Iniciar Reparo"
+                      >
+                        <Clock className="w-5 h-5" />
+                      </button>
+                      <button 
+                        onClick={() => updateStatus(order.id!, 'completed')}
+                        className="p-2 text-green-600 hover:bg-green-50 rounded-xl transition-all"
+                        title="Marcar como Pronto"
+                      >
+                        <CheckCircle2 className="w-5 h-5" />
+                      </button>
+                      <button 
+                        onClick={() => handleDeliverClick(order)}
+                        className="p-2 text-purple-600 hover:bg-purple-50 rounded-xl transition-all"
+                        title="Entregar ao Cliente"
+                      >
+                        <Truck className="w-5 h-5" />
+                      </button>
+                      <div className="relative group">
+                        <button 
+                          className="p-2 text-green-600 hover:bg-green-50 rounded-xl transition-all flex items-center gap-1"
+                          title="Notificar WhatsApp"
+                        >
+                          <MessageCircle className="w-5 h-5" />
+                        </button>
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 overflow-hidden">
+                          <button 
+                            onClick={() => notifyWhatsApp(order, 'budget')}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600"
+                          >
+                            Enviar Orçamento
+                          </button>
+                          <button 
+                            onClick={() => notifyWhatsApp(order, 'ready')}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600"
+                          >
+                            Avisar que está Pronto
+                          </button>
+                          <button 
+                            onClick={() => notifyWhatsApp(order, 'delivered')}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600"
+                          >
+                            Agradecer (Entregue)
+                          </button>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => printReceipt(order)}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                        title="Imprimir Recibo"
+                      >
+                        <Printer className="w-5 h-5" />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(order.id!)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                        title="Excluir OS"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 p-4 bg-orange-50 rounded-xl">
+                  <p className="text-sm font-medium text-orange-900">
+                    <span className="font-bold">Problema:</span> {order.problem}
+                  </p>
+                  <div className="mt-2 flex items-center gap-4 text-xs text-orange-700">
+                    <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {order.customerPhone}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col">
+          <div className="mb-4 relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input 
               type="text" 
               placeholder="Buscar por cliente ou aparelho..." 
-              className="w-full pl-10 pr-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+              className="w-full pl-10 pr-4 py-2 bg-white border border-orange-100 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-        </div>
-
-        <div className="divide-y divide-orange-50">
-          {filteredOrders.map((order) => (
-            <div key={order.id} className="p-6 hover:bg-orange-50/30 transition-colors">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="flex items-start gap-4">
-                  <div className="bg-orange-100 p-3 rounded-2xl">
-                    <Smartphone className="w-6 h-6 text-orange-600" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-bold text-gray-900">{order.customerName}</h3>
-                      {getStatusBadge(order.status)}
+          <div className="flex gap-4 overflow-x-auto pb-4 items-start">
+            {['pending', 'in-progress', 'completed'].map((status) => (
+              <div key={status} className="bg-gray-50 rounded-2xl p-4 min-w-[300px] max-w-[300px] border border-gray-200 flex-shrink-0">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                    {status === 'pending' && <AlertCircle className="w-5 h-5 text-yellow-500" />}
+                    {status === 'in-progress' && <Clock className="w-5 h-5 text-blue-500" />}
+                    {status === 'completed' && <CheckCircle2 className="w-5 h-5 text-green-500" />}
+                    {status === 'pending' ? 'Pendentes' : status === 'in-progress' ? 'Em Reparo' : 'Prontos'}
+                  </h3>
+                  <span className="bg-white px-2 py-1 rounded-lg text-xs font-bold text-gray-500 shadow-sm">
+                    {filteredOrders.filter(o => o.status === status).length}
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {filteredOrders.filter(o => o.status === status).map(order => (
+                    <div key={order.id} className="bg-white p-4 rounded-xl shadow-sm border border-orange-100 hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start mb-2">
+                        <h4 className="font-bold text-gray-900 text-sm">{order.customerName}</h4>
+                        <span className="text-xs font-bold text-orange-600">{formatCurrency(order.totalValue)}</span>
+                      </div>
+                      <p className="text-xs text-gray-600 mb-2 flex items-center gap-1">
+                        <Smartphone className="w-3 h-3" /> {order.device}
+                      </p>
+                      <p className="text-xs text-gray-500 mb-3 line-clamp-2">
+                        {order.problem}
+                      </p>
+                      <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                        <span className="text-[10px] text-gray-400">{formatDate(order.createdAt)}</span>
+                        <div className="flex gap-1">
+                          <button 
+                            onClick={() => {
+                              setEditingOrder(order);
+                              setFormData({
+                                customerId: order.customerId || '',
+                                customerName: order.customerName || '',
+                                customerPhone: order.customerPhone || '',
+                                cep: order.cep || '',
+                                address: order.address || '',
+                                device: order.device || '',
+                                problem: order.problem || '',
+                                observations: order.observations || '',
+                                totalValue: order.totalValue || 0,
+                                laborValue: (order.totalValue || 0) - (order.partsUsed || []).reduce((acc: number, p: any) => acc + (p.price * p.quantity), 0),
+                                status: order.status || 'pending',
+                                warrantyPeriod: order.warrantyPeriod || '90 dias',
+                                technicianId: order.technicianId || '',
+                                technicianName: order.technicianName || '',
+                                partsUsed: order.partsUsed || []
+                              });
+                              setIsModalOpen(true);
+                            }}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                            title="Editar OS"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          {status === 'pending' && (
+                            <button 
+                              onClick={() => updateStatus(order.id!, 'in-progress')}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                              title="Iniciar Reparo"
+                            >
+                              <Clock className="w-4 h-4" />
+                            </button>
+                          )}
+                          {status === 'in-progress' && (
+                            <button 
+                              onClick={() => updateStatus(order.id!, 'completed')}
+                              className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                              title="Marcar como Pronto"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {status === 'completed' && (
+                            <button 
+                              onClick={() => handleDeliverClick(order)}
+                              className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                              title="Entregar ao Cliente"
+                            >
+                              <Truck className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-sm text-gray-600 flex items-center gap-2">
-                      <Smartphone className="w-4 h-4" /> {order.device}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Criada em {formatDate(order.createdAt)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-4 lg:gap-8">
-                  <div className="text-right">
-                    <p className="text-xs font-bold text-gray-400 uppercase">Valor Total</p>
-                    <p className="text-lg font-bold text-orange-600">{formatCurrency(order.totalValue)}</p>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => {
-                        setEditingOrder(order);
-                        setFormData({
-                          customerId: order.customerId || '',
-                          customerName: order.customerName || '',
-                          customerPhone: order.customerPhone || '',
-                          cep: order.cep || '',
-                          address: order.address || '',
-                          device: order.device || '',
-                          problem: order.problem || '',
-                          observations: order.observations || '',
-                          totalValue: order.totalValue || 0,
-                          laborValue: (order.totalValue || 0) - (order.partsUsed || []).reduce((acc: number, p: any) => acc + (p.price * p.quantity), 0),
-                          status: order.status || 'pending',
-                          warrantyPeriod: order.warrantyPeriod || '90 dias',
-                          technicianId: order.technicianId || '',
-                          technicianName: order.technicianName || '',
-                          partsUsed: order.partsUsed || []
-                        });
-                        setIsModalOpen(true);
-                      }}
-                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                      title="Editar OS"
-                    >
-                      <Edit2 className="w-5 h-5" />
-                    </button>
-                    <button 
-                      onClick={() => updateStatus(order.id!, 'in-progress')}
-                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                      title="Iniciar Reparo"
-                    >
-                      <Clock className="w-5 h-5" />
-                    </button>
-                    <button 
-                      onClick={() => updateStatus(order.id!, 'completed')}
-                      className="p-2 text-green-600 hover:bg-green-50 rounded-xl transition-all"
-                      title="Marcar como Pronto"
-                    >
-                      <CheckCircle2 className="w-5 h-5" />
-                    </button>
-                    <button 
-                      onClick={() => handleDeliverClick(order)}
-                      className="p-2 text-purple-600 hover:bg-purple-50 rounded-xl transition-all"
-                      title="Entregar ao Cliente"
-                    >
-                      <Truck className="w-5 h-5" />
-                    </button>
-                    <button 
-                      onClick={() => notifyWhatsApp(order)}
-                      className="p-2 text-green-600 hover:bg-green-50 rounded-xl transition-all"
-                      title="Notificar WhatsApp"
-                    >
-                      <MessageCircle className="w-5 h-5" />
-                    </button>
-                    <button 
-                      onClick={() => printReceipt(order)}
-                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                      title="Imprimir Recibo"
-                    >
-                      <Printer className="w-5 h-5" />
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(order.id!)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                      title="Excluir OS"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
+                  ))}
+                  {filteredOrders.filter(o => o.status === status).length === 0 && (
+                    <div className="text-center py-8 text-gray-400 text-sm">
+                      Nenhuma OS nesta coluna
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="mt-4 p-4 bg-orange-50 rounded-xl">
-                <p className="text-sm font-medium text-orange-900">
-                  <span className="font-bold">Problema:</span> {order.problem}
-                </p>
-                <div className="mt-2 flex items-center gap-4 text-xs text-orange-700">
-                  <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {order.customerPhone}</span>
-                </div>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Modal Nova OS */}
       {isModalOpen && (
