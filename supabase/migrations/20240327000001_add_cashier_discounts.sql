@@ -1,0 +1,2 @@
+ALTER TABLE cashier_sessions ADD COLUMN IF NOT EXISTS total_discounts DECIMAL(10,2) DEFAULT 0;
+ALTER TABLE cashier_sessions ADD COLUMN IF NOT EXISTS total_additions DECIMAL(10,2) DEFAULT 0;

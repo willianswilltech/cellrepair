@@ -32,6 +32,11 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit_card' | 'debit_card' | 'pix'>('cash');
+  const [discount, setDiscount] = useState<number>(0);
+  const [discountType, setDiscountType] = useState<'fixed' | 'percentage'>('fixed');
+  const [addition, setAddition] = useState<number>(0);
+  const [payments, setPayments] = useState<{ method: string, amount: number }[]>([]);
+  const [currentPaymentAmount, setCurrentPaymentAmount] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -148,35 +153,92 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
     setCart(cart.filter(item => item.productId !== productId));
   };
 
-  const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+  const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+  const discountAmount = discountType === 'percentage' ? subtotal * (discount / 100) : discount;
+  const finalTotal = Math.max(0, subtotal - discountAmount + addition);
+  const totalPaid = payments.reduce((acc, p) => acc + p.amount, 0);
+  const remainingAmount = Math.max(0, finalTotal - totalPaid);
 
-  const handleCheckout = React.useCallback(async () => {
-    if (cart.length === 0 || isProcessing) return;
+  const handleAddPayment = (method: string) => {
+    let amount = 0;
+    if (currentPaymentAmount) {
+      amount = parseFloat(currentPaymentAmount.replace(/\D/g, '')) / 100;
+    } else {
+      amount = remainingAmount;
+    }
+    
+    if (isNaN(amount) || amount <= 0) return;
+    
+    if (amount > remainingAmount && method !== 'cash') {
+      alert(`Apenas pagamentos em dinheiro podem ter troco. O valor máximo para este método é R$ ${remainingAmount.toFixed(2)}`);
+      return;
+    }
+
+    setPayments([...payments, { method, amount }]);
+    setCurrentPaymentAmount('');
+  };
+
+  const removePayment = (index: number) => {
+    setPayments(payments.filter((_, i) => i !== index));
+  };
+
+  const confirmCheckout = React.useCallback(async () => {
+    if (cart.length === 0 || isProcessing || remainingAmount > 0) return;
     
     if (!activeSession) {
-      alert("⚠️ CAIXA FECHADO: Você não pode realizar vendas com o caixa fechado. Por favor, abra o caixa no módulo 'Caixa / Financeiro' primeiro.");
+      alert("⚠️ CAIXA FECHADO: Você não pode realizar vendas com o caixa fechado.");
       return;
     }
 
     setIsProcessing(true);
     try {
-      console.log("Iniciando checkout...", { cart, total, paymentMethod, sessionId: activeSession.id, userId: user.id });
+      const primaryPaymentMethod = payments.length === 1 ? payments[0].method : 'multiple';
       
-      // Step 1: Create Sale record
-      const { data: saleData, error: saleError } = await supabase
+      const itemsWithMetadata = [
+        ...cart,
+        {
+          productId: 'METADATA',
+          name: 'Metadata',
+          price: 0,
+          quantity: 1,
+          discount: discountAmount,
+          addition: addition,
+          payments: payments
+        }
+      ];
+
+      let insertData: any = {
+        items: itemsWithMetadata,
+        total: finalTotal,
+        payment_method: primaryPaymentMethod,
+        discount: discountAmount,
+        addition: addition,
+        payments: payments,
+        session_id: activeSession.id,
+        user_id: user.id
+      };
+
+      let { data: saleData, error: saleError } = await supabase
         .from('sales')
-        .insert({
-          items: cart,
-          total,
-          payment_method: paymentMethod,
-          session_id: activeSession.id,
-          user_id: user.id
-        })
+        .insert(insertData)
         .select();
+
+      if (saleError && saleError.message.includes('Could not find the')) {
+        // Fallback for users who haven't run the migration
+        delete insertData.discount;
+        delete insertData.addition;
+        delete insertData.payments;
+        const retryResult = await supabase
+          .from('sales')
+          .insert(insertData)
+          .select();
+        saleData = retryResult.data;
+        saleError = retryResult.error;
+      }
       
       if (saleError) {
         console.error("Erro ao inserir venda:", saleError);
-        throw new Error(`[PASSO 1: REGISTRO] Erro ao registrar venda: ${saleError.message} (Código: ${saleError.code})`);
+        throw new Error(`[PASSO 1: REGISTRO] Erro ao registrar venda: ${saleError.message}`);
       }
 
       console.log("Venda registrada com sucesso:", saleData);
@@ -211,7 +273,11 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       }
 
       setCart([]);
-      setLastSale({ items: cart, total, paymentMethod, date: new Date() });
+      setDiscount(0);
+      setAddition(0);
+      setPayments([]);
+      setCurrentPaymentAmount('');
+      setLastSale({ items: cart, total: finalTotal, paymentMethod: primaryPaymentMethod, payments, discount: discountAmount, addition, date: new Date() });
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 5000);
     } catch (error: any) {
@@ -220,7 +286,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
     } finally {
       setIsProcessing(false);
     }
-  }, [cart, total, paymentMethod, activeSession, user, isProcessing]);
+  }, [cart, finalTotal, payments, discountAmount, addition, activeSession, user, isProcessing, remainingAmount]);
 
   useEffect(() => {
     const init = async () => {
@@ -326,21 +392,21 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
         setIsScanning(false);
       }
 
-      if (e.key === 'F1') setPaymentMethod('cash');
-      if (e.key === 'F2') setPaymentMethod('credit_card');
-      if (e.key === 'F3') setPaymentMethod('debit_card');
-      if (e.key === 'F4') setPaymentMethod('pix');
+      if (e.key === 'F1') handleAddPayment('cash');
+      if (e.key === 'F2') handleAddPayment('credit_card');
+      if (e.key === 'F3') handleAddPayment('debit_card');
+      if (e.key === 'F4') handleAddPayment('pix');
       
       if (e.key === 'F10') {
-        if (cart.length > 0 && !isProcessing && activeSession) {
-          handleCheckout();
+        if (cart.length > 0 && !isProcessing && activeSession && remainingAmount <= 0) {
+          confirmCheckout();
         }
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [cart, isProcessing, activeSession, paymentMethod, handleCheckout]);
+  }, [cart, isProcessing, activeSession, paymentMethod, handleAddPayment, confirmCheckout, remainingAmount]);
 
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -397,7 +463,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
     let y = startY + 10;
     doc.text(`Data: ${formatDate(sale.date)}`, 5, y);
     y += 5;
-    doc.text(`Pagamento: ${sale.paymentMethod}`, 5, y);
+    doc.text(`Pagamento: ${sale.paymentMethod === 'multiple' ? 'Múltiplos' : sale.paymentMethod}`, 5, y);
     y += 5;
     doc.text('------------------------------------------', 40, y, { align: 'center' });
     
@@ -408,11 +474,35 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       y += 5;
     });
     
+    if (sale.discount > 0) {
+      doc.text(`Desconto:`, 5, y);
+      doc.text(`-${formatCurrency(sale.discount)}`, 75, y, { align: 'right' });
+      y += 5;
+    }
+    if (sale.addition > 0) {
+      doc.text(`Acréscimo:`, 5, y);
+      doc.text(`+${formatCurrency(sale.addition)}`, 75, y, { align: 'right' });
+      y += 5;
+    }
+
     doc.text('------------------------------------------', 40, y, { align: 'center' });
     y += 5;
     doc.setFontSize(10);
     doc.text(`TOTAL: ${formatCurrency(sale.total)}`, 5, y);
     y += 10;
+    
+    if (sale.payments && sale.payments.length > 0) {
+      doc.setFontSize(8);
+      doc.text('Pagamentos:', 5, y);
+      y += 5;
+      sale.payments.forEach((p: any) => {
+        doc.text(`${p.method}:`, 5, y);
+        doc.text(`${formatCurrency(p.amount)}`, 75, y, { align: 'right' });
+        y += 5;
+      });
+      y += 5;
+    }
+
     doc.setFontSize(8);
     doc.text('Obrigado pela preferência!', 40, y, { align: 'center' });
 
@@ -611,58 +701,140 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
           )}
         </div>
 
-        <div className="p-6 bg-orange-50/50 border-t border-orange-100 space-y-4">
-          <div className="space-y-2">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Forma de Pagamento</p>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { id: 'cash', label: 'Dinheiro', icon: Banknote, key: 'F1' },
-                { id: 'credit_card', label: 'Crédito', icon: CreditCard, key: 'F2' },
-                { id: 'debit_card', label: 'Débito', icon: CreditCard, key: 'F3' },
-                { id: 'pix', label: 'PIX', icon: QrCode, key: 'F4' },
-              ].map((method) => (
-                <button
-                  key={method.id}
-                  onClick={() => setPaymentMethod(method.id as any)}
-                  className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                    paymentMethod === method.id 
-                      ? 'bg-orange-600 text-white border-orange-600 shadow-md' 
-                      : 'bg-white text-gray-600 border-orange-100 hover:border-orange-300'
-                  }`}
+        <div className="p-4 bg-orange-50/50 border-t border-orange-100 flex flex-col gap-3 shrink-0">
+          
+          {/* Adjustments: Discount & Addition */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-gray-500 uppercase">Desconto</label>
+              <div className="flex bg-white border border-orange-200 rounded-lg overflow-hidden">
+                <select 
+                  value={discountType}
+                  onChange={(e) => setDiscountType(e.target.value as any)}
+                  className="bg-gray-50 border-r border-orange-200 px-1 py-1.5 text-xs font-bold outline-none"
                 >
-                  <div className="flex items-center gap-2">
-                    <method.icon className="w-4 h-4" />
-                    {method.label}
-                  </div>
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded ${paymentMethod === method.id ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
-                    {method.key}
-                  </span>
-                </button>
-              ))}
+                  <option value="fixed">R$</option>
+                  <option value="percentage">%</option>
+                </select>
+                <input 
+                  type="number" 
+                  min="0"
+                  value={discount || ''}
+                  onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
+                  className="w-full px-2 py-1.5 text-xs font-bold outline-none"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-500 uppercase">Acréscimo (R$)</label>
+              <input 
+                type="number" 
+                min="0"
+                value={addition || ''}
+                onChange={(e) => setAddition(parseFloat(e.target.value) || 0)}
+                className="w-full bg-white border border-orange-200 rounded-lg px-2 py-1.5 text-xs font-bold outline-none"
+                placeholder="0.00"
+              />
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-2">
-            <span className="text-gray-500 font-medium">Total</span>
-            <span className="text-2xl font-black text-gray-900">{formatCurrency(total)}</span>
+          {/* Totals */}
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-500 font-medium">Subtotal</span>
+            <span className="text-sm font-bold text-gray-900">{formatCurrency(subtotal)}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-900 font-bold">Total a Pagar</span>
+            <span className="text-xl font-black text-orange-600">{formatCurrency(finalTotal)}</span>
           </div>
 
-          <button
-            onClick={handleCheckout}
-            disabled={cart.length === 0 || isProcessing}
-            className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 text-white font-bold py-4 rounded-2xl shadow-lg shadow-orange-200 transition-all flex flex-col items-center justify-center gap-1"
-          >
-            {isProcessing ? (
-              <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            ) : (
-              <>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-6 h-6" />
-                  Finalizar Venda
+          {/* Added Payments List */}
+          {payments.length > 0 && (
+            <div className="space-y-1 max-h-24 overflow-y-auto">
+              {payments.map((p, idx) => (
+                <div key={idx} className="flex justify-between items-center bg-white p-1.5 rounded-lg border border-orange-100 text-xs">
+                  <span className="font-semibold text-gray-700">
+                    {p.method === 'cash' ? 'Dinheiro' : p.method === 'credit_card' ? 'Crédito' : p.method === 'debit_card' ? 'Débito' : 'PIX'}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-green-600">{formatCurrency(p.amount)}</span>
+                    <button onClick={() => removePayment(idx)} className="text-red-500 hover:text-red-700">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
-                <span className="text-[10px] opacity-80 font-medium">Atalho: F10</span>
-              </>
-            )}
+              ))}
+            </div>
+          )}
+
+          {/* Remaining / Change */}
+          {payments.length > 0 && (
+            <div className="flex justify-between items-center bg-orange-100 p-2 rounded-lg">
+              <span className="text-xs font-bold text-orange-800">
+                {remainingAmount > 0 ? 'Falta Pagar' : 'Troco'}
+              </span>
+              <span className={`text-sm font-black ${remainingAmount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                {formatCurrency(remainingAmount > 0 ? remainingAmount : totalPaid - finalTotal)}
+              </span>
+            </div>
+          )}
+
+          {/* Add Payment Controls */}
+          {remainingAmount > 0 && (
+            <div className="space-y-2">
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-sm">R$</span>
+                <input
+                  type="text"
+                  value={currentPaymentAmount}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, '');
+                    const number = parseInt(value) / 100;
+                    if (!isNaN(number)) {
+                      setCurrentPaymentAmount(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(number));
+                    } else {
+                      setCurrentPaymentAmount('');
+                    }
+                  }}
+                  onFocus={() => {
+                    if (!currentPaymentAmount && remainingAmount > 0) {
+                      setCurrentPaymentAmount(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(remainingAmount));
+                    }
+                  }}
+                  className="w-full pl-8 pr-3 py-2 bg-white border border-orange-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-orange-500"
+                  placeholder="0,00"
+                />
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { id: 'cash', label: 'Dinheiro', icon: Banknote, key: 'F1' },
+                  { id: 'credit_card', label: 'Crédito', icon: CreditCard, key: 'F2' },
+                  { id: 'debit_card', label: 'Débito', icon: CreditCard, key: 'F3' },
+                  { id: 'pix', label: 'PIX', icon: QrCode, key: 'F4' },
+                ].map((method) => (
+                  <button
+                    key={method.id}
+                    onClick={() => handleAddPayment(method.id)}
+                    className="flex flex-col items-center justify-center gap-1 p-1.5 bg-white border border-orange-200 rounded-lg hover:bg-orange-50 hover:border-orange-400 transition-all"
+                    title={`Adicionar pagamento em ${method.label}`}
+                  >
+                    <method.icon className="w-4 h-4 text-gray-600" />
+                    <span className="text-[9px] font-bold text-gray-700">{method.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Finalize Button */}
+          <button
+            onClick={confirmCheckout}
+            disabled={cart.length === 0 || isProcessing || remainingAmount > 0}
+            className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-xl shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-2 mt-2"
+          >
+            <CheckCircle2 className="w-5 h-5" />
+            {isProcessing ? 'Processando...' : 'Finalizar Venda'}
           </button>
         </div>
       </div>

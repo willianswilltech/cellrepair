@@ -23,7 +23,8 @@ import {
   Camera as CameraIcon,
   X,
   LayoutGrid,
-  List
+  List,
+  FileText
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { ServiceOrder, Customer } from '../types';
@@ -256,6 +257,42 @@ export default function ServiceOrders({ user }: { user: any }) {
       };
 
       if (editingOrder) {
+        // Calculate difference in parts to update stock
+        const oldParts = editingOrder.partsUsed || [];
+        const newParts = formData.partsUsed || [];
+
+        for (const newPart of newParts) {
+          const oldPart = oldParts.find((p: any) => p.productId === newPart.productId);
+          const oldQuantity = oldPart ? oldPart.quantity : 0;
+          const diff = newPart.quantity - oldQuantity;
+          
+          if (diff !== 0) {
+            const product = products.find(p => p.id === newPart.productId);
+            if (product) {
+              await supabase
+                .from('products')
+                .update({ stock: product.stock - diff })
+                .eq('id', product.id)
+                .eq('user_id', user.id);
+            }
+          }
+        }
+
+        for (const oldPart of oldParts) {
+          const newPart = newParts.find((p: any) => p.productId === oldPart.productId);
+          if (!newPart) {
+            // Part was removed, add back to stock
+            const product = products.find(p => p.id === oldPart.productId);
+            if (product) {
+              await supabase
+                .from('products')
+                .update({ stock: product.stock + oldPart.quantity })
+                .eq('id', product.id)
+                .eq('user_id', user.id);
+            }
+          }
+        }
+
         const { error: submitError } = await supabase
           .from('service_orders')
           .update({
@@ -266,6 +303,18 @@ export default function ServiceOrders({ user }: { user: any }) {
           .eq('user_id', user.id);
         if (submitError) throw submitError;
       } else {
+        // Deduct stock for new order
+        for (const part of formData.partsUsed) {
+          const product = products.find(p => p.id === part.productId);
+          if (product) {
+            await supabase
+              .from('products')
+              .update({ stock: product.stock - part.quantity })
+              .eq('id', product.id)
+              .eq('user_id', user.id);
+          }
+        }
+
         const { error: submitError } = await supabase
           .from('service_orders')
           .insert({
@@ -276,6 +325,7 @@ export default function ServiceOrders({ user }: { user: any }) {
       }
 
       await fetchOrders();
+      await fetchProducts(); // Refresh products stock
       setIsModalOpen(false);
       setEditingOrder(null);
       setFormData({ 
@@ -312,6 +362,20 @@ export default function ServiceOrders({ user }: { user: any }) {
     if (!orderToDelete) return;
     
     try {
+      const order = orders.find(o => o.id === orderToDelete);
+      if (order && order.partsUsed) {
+        for (const part of order.partsUsed) {
+          const product = products.find(p => p.id === part.productId);
+          if (product) {
+            await supabase
+              .from('products')
+              .update({ stock: product.stock + part.quantity })
+              .eq('id', product.id)
+              .eq('user_id', user.id);
+          }
+        }
+      }
+
       const { error: deleteError } = await supabase
         .from('service_orders')
         .delete()
@@ -322,6 +386,7 @@ export default function ServiceOrders({ user }: { user: any }) {
       
       console.log('OS excluída com sucesso');
       await fetchOrders();
+      await fetchProducts(); // Refresh products stock
       setIsDeleteModalOpen(false);
       setOrderToDelete(null);
     } catch (err: any) {
@@ -441,6 +506,81 @@ export default function ServiceOrders({ user }: { user: any }) {
     doc.text('Obrigado pela preferência!', 40, currentY, { align: 'center' });
 
     doc.save(`OS_${order.id?.substring(0, 8)}.pdf`);
+  };
+
+  const printEntryTerm = (order: ServiceOrder) => {
+    const doc = new jsPDF();
+    const storeName = profile?.store_name || 'CELLREPAIR PRO';
+    const storeCnpj = profile?.cnpj || '';
+    const storePhone = profile?.phone || '';
+    const storeAddress = profile?.address || '';
+
+    doc.setFontSize(18);
+    doc.text('TERMO DE ENTRADA DE EQUIPAMENTO', 105, 20, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.text(`Empresa: ${storeName}`, 14, 35);
+    if (storeCnpj) doc.text(`CNPJ: ${storeCnpj}`, 14, 40);
+    if (storePhone) doc.text(`Telefone: ${storePhone}`, 14, 45);
+    if (storeAddress) doc.text(`Endereço: ${storeAddress}`, 14, 50);
+
+    doc.text(`OS Nº: ${order.id?.substring(0, 8)}`, 140, 35);
+    doc.text(`Data: ${formatDate(order.createdAt!)}`, 140, 40);
+
+    doc.setLineWidth(0.5);
+    doc.line(14, 55, 196, 55);
+
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text('DADOS DO CLIENTE', 14, 65);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Nome: ${order.customerName}`, 14, 72);
+    doc.text(`Telefone: ${order.customerPhone}`, 14, 77);
+    if (order.address) doc.text(`Endereço: ${order.address}`, 14, 82);
+
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text('DADOS DO EQUIPAMENTO', 14, 95);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Aparelho: ${order.device}`, 14, 102);
+    doc.text(`Defeito Relatado: ${order.problem}`, 14, 107);
+    if (order.observations) {
+      const splitObs = doc.splitTextToSize(`Observações: ${order.observations}`, 180);
+      doc.text(splitObs, 14, 112);
+    }
+
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text('TERMOS E CONDIÇÕES', 14, 130);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    
+    const terms = [
+      "1. O cliente declara estar ciente e de acordo com as condições do equipamento descritas acima.",
+      "2. O orçamento tem validade de 5 dias úteis.",
+      "3. Equipamentos não retirados em até 90 dias após a comunicação de conclusão ou reprovação do orçamento poderão ser vendidos ou descartados para custear despesas de armazenamento, conforme art. 1.275 do Código Civil.",
+      "4. A garantia cobre apenas os serviços realizados e peças substituídas, não cobrindo mau uso, quedas, contato com líquidos ou intervenção de terceiros.",
+      `5. Prazo de garantia para este serviço: ${order.warrantyPeriod || '90 dias'}.`,
+      "6. A assistência não se responsabiliza por dados armazenados no aparelho. É responsabilidade do cliente realizar backup prévio."
+    ];
+
+    let yPos = 138;
+    terms.forEach(term => {
+      const splitTerm = doc.splitTextToSize(term, 180);
+      doc.text(splitTerm, 14, yPos);
+      yPos += (splitTerm.length * 5);
+    });
+
+    doc.setLineWidth(0.5);
+    doc.line(30, 240, 90, 240);
+    doc.text('Assinatura do Cliente', 60, 245, { align: 'center' });
+
+    doc.line(120, 240, 180, 240);
+    doc.text('Assinatura da Empresa', 150, 245, { align: 'center' });
+
+    doc.save(`Termo_OS_${order.id?.substring(0, 8)}.pdf`);
   };
 
   // Keyboard shortcuts for delivery modal
@@ -767,13 +907,28 @@ export default function ServiceOrders({ user }: { user: any }) {
                           </button>
                         </div>
                       </div>
-                      <button 
-                        onClick={() => printReceipt(order)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                        title="Imprimir Recibo"
-                      >
-                        <Printer className="w-5 h-5" />
-                      </button>
+                      <div className="relative group">
+                        <button 
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all flex items-center gap-1"
+                          title="Imprimir"
+                        >
+                          <Printer className="w-5 h-5" />
+                        </button>
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 overflow-hidden">
+                          <button 
+                            onClick={() => printEntryTerm(order)}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 flex items-center gap-2"
+                          >
+                            <FileText className="w-4 h-4" /> Termo de Entrada
+                          </button>
+                          <button 
+                            onClick={() => printReceipt(order)}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 flex items-center gap-2"
+                          >
+                            <Printer className="w-4 h-4" /> Recibo (Térmica)
+                          </button>
+                        </div>
+                      </div>
                       <button 
                         onClick={() => handleDelete(order.id!)}
                         className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-all"
@@ -892,6 +1047,28 @@ export default function ServiceOrders({ user }: { user: any }) {
                               <Truck className="w-4 h-4" />
                             </button>
                           )}
+                          <div className="relative group">
+                            <button 
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-all flex items-center gap-1"
+                              title="Imprimir"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+                            <div className="absolute right-0 bottom-full mb-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 overflow-hidden">
+                              <button 
+                                onClick={() => printEntryTerm(order)}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 flex items-center gap-2"
+                              >
+                                <FileText className="w-4 h-4" /> Termo de Entrada
+                              </button>
+                              <button 
+                                onClick={() => printReceipt(order)}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 flex items-center gap-2"
+                              >
+                                <Printer className="w-4 h-4" /> Recibo (Térmica)
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>

@@ -17,6 +17,7 @@ import { Product, Category } from '../types';
 import { formatCurrency, formatDate } from '../utils/format';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
+import JsBarcode from 'jsbarcode';
 
 export default function Inventory({ user }: { user: any }) {
   const [isLoading, setIsLoading] = useState(true);
@@ -423,6 +424,105 @@ export default function Inventory({ user }: { user: any }) {
     doc.save(`relatorio_estoque_${formatDate(new Date().toISOString()).replace(/\//g, '-')}.pdf`);
   };
 
+  const printBarcode = (product: Product) => {
+    if (!product.barcode) {
+      alert('Este produto não possui código de barras cadastrado.');
+      return;
+    }
+
+    // Create a temporary canvas to generate the barcode
+    const canvas = document.createElement('canvas');
+    try {
+      JsBarcode(canvas, product.barcode, {
+        format: "CODE128",
+        displayValue: true,
+        fontSize: 14,
+        margin: 10,
+        width: 2,
+        height: 50
+      });
+
+      const barcodeDataUrl = canvas.toDataURL('image/png');
+
+      // Create a print window
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`
+          <html>
+            <head>
+              <title>Imprimir Código de Barras - ${product.name}</title>
+              <style>
+                body {
+                  font-family: sans-serif;
+                  display: flex;
+                  flex-direction: column;
+                  align-items: center;
+                  justify-content: center;
+                  padding: 20px;
+                }
+                .label {
+                  border: 1px solid #ccc;
+                  padding: 10px;
+                  text-align: center;
+                  width: 200px;
+                  margin-bottom: 20px;
+                }
+                .product-name {
+                  font-size: 12px;
+                  font-weight: bold;
+                  margin-bottom: 5px;
+                  white-space: nowrap;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                }
+                .product-price {
+                  font-size: 14px;
+                  font-weight: bold;
+                  margin-bottom: 5px;
+                }
+                img {
+                  max-width: 100%;
+                  height: auto;
+                }
+                @media print {
+                  body {
+                    margin: 0;
+                    padding: 0;
+                  }
+                  .label {
+                    border: none;
+                    margin: 0;
+                    page-break-after: always;
+                  }
+                  @page {
+                    margin: 0;
+                  }
+                }
+              </style>
+            </head>
+            <body>
+              <div class="label">
+                <div class="product-name">${product.name}</div>
+                <div class="product-price">${formatCurrency(product.price)}</div>
+                <img src="${barcodeDataUrl}" alt="Barcode" />
+              </div>
+              <script>
+                window.onload = () => {
+                  window.print();
+                  setTimeout(() => window.close(), 500);
+                };
+              </script>
+            </body>
+          </html>
+        `);
+        printWindow.document.close();
+      }
+    } catch (error) {
+      console.error("Erro ao gerar código de barras:", error);
+      alert("Erro ao gerar código de barras. Verifique se o formato é válido.");
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -522,6 +622,15 @@ export default function Inventory({ user }: { user: any }) {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-2">
+                      {product.barcode && (
+                        <button 
+                          onClick={() => printBarcode(product)}
+                          className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-all"
+                          title="Imprimir Código de Barras"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-barcode"><path d="M3 5v14"/><path d="M8 5v14"/><path d="M12 5v14"/><path d="M17 5v14"/><path d="M21 5v14"/></svg>
+                        </button>
+                      )}
                       <button 
                         onClick={() => {
                           setEditingProduct(product);
@@ -741,16 +850,7 @@ export default function Inventory({ user }: { user: any }) {
                     </div>
                   )}
                 </div>
-                <div className="sm:col-span-2 hidden">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Código de Barras / QR Code</label>
-                  <input 
-                    type="text" 
-                    className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.barcode}
-                    onChange={e => setFormData({...formData, barcode: e.target.value})}
-                    placeholder="Escaneie ou digite o código"
-                  />
-                </div>
+
               </div>
               <div className="flex gap-3 pt-4">
                 <button 

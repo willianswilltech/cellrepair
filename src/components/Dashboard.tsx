@@ -51,6 +51,7 @@ export default function Dashboard({ user }: { user: any }) {
     lowStock: 0,
     revenue: 0,
     expenses: 0,
+    totalCost: 0,
     lowStockItems: [] as any[],
     chartData: [] as any[],
     topProducts: [] as any[],
@@ -71,7 +72,7 @@ export default function Dashboard({ user }: { user: any }) {
           supabase.from('service_orders').select('*').eq('user_id', user.id).gte('created_at', start).lte('created_at', end),
           supabase.from('products').select('*').eq('user_id', user.id),
           supabase.from('products').select('*').eq('user_id', user.id).lte('stock', 5),
-          supabase.from('expenses').select('amount').eq('user_id', user.id).eq('status', 'paid').gte('due_date', start).lte('due_date', end)
+          supabase.from('expenses').select('amount').eq('user_id', user.id).eq('status', 'paid').gte('paid_at', start).lte('paid_at', end)
         ]);
 
         if (salesRes.error || ordersRes.error || allProductsRes.error || lowStockRes.error || expensesRes.error) {
@@ -82,6 +83,12 @@ export default function Dashboard({ user }: { user: any }) {
 
         const productMap = new Map();
         allProductsRes.data?.forEach(p => productMap.set(p.id, p));
+
+        const parseCost = (val: any) => {
+          if (val === undefined || val === null || val === '') return 0;
+          const num = Number(String(val).replace(',', '.'));
+          return isNaN(num) ? 0 : num;
+        };
 
         let revenue = 0;
         let totalCost = 0;
@@ -114,9 +121,9 @@ export default function Dashboard({ user }: { user: any }) {
             }
 
             if (item.cost !== undefined) {
-              totalCost += Number(item.cost) * quantity;
+              totalCost += parseCost(item.cost) * quantity;
             } else if (productId) {
-              totalCost += (product?.cost || 0) * quantity;
+              totalCost += parseCost(product?.cost) * quantity;
             }
           });
         });
@@ -146,9 +153,9 @@ export default function Dashboard({ user }: { user: any }) {
               }
 
               if (part.cost !== undefined) {
-                totalCost += Number(part.cost) * quantity;
+                totalCost += parseCost(part.cost) * quantity;
               } else if (productId) {
-                totalCost += (product?.cost || 0) * quantity;
+                totalCost += parseCost(product?.cost) * quantity;
               }
             });
 
@@ -211,7 +218,8 @@ export default function Dashboard({ user }: { user: any }) {
           totalOrders: ordersRes.data?.length || 0,
           lowStock: lowStockRes.data?.length || 0,
           revenue,
-          expenses: expenses + totalCost,
+          expenses: expenses,
+          totalCost: totalCost,
           lowStockItems: lowStockRes.data || [],
           chartData,
           topProducts,
@@ -255,10 +263,10 @@ export default function Dashboard({ user }: { user: any }) {
   }
 
   const cards = [
-    { label: 'Faturamento Bruto', value: formatCurrency(stats.revenue), icon: DollarSign, color: 'bg-green-500', trend: '+12%' },
-    { label: 'Despesas e Custos', value: formatCurrency(stats.expenses), icon: ArrowDownRight, color: 'bg-red-500', trend: '-5%' },
-    { label: 'Lucro Líquido', value: formatCurrency(stats.revenue - stats.expenses), icon: TrendingUp, color: 'bg-blue-600', trend: '+15%' },
-    { label: 'Produtos em Baixa', value: stats.lowStock, icon: Package, color: 'bg-orange-500', trend: '-2%' },
+    { label: 'Faturamento Bruto', value: formatCurrency(stats.revenue), icon: DollarSign, color: 'bg-green-500', trend: '' },
+    { label: 'Custo das Vendas', value: formatCurrency(stats.totalCost), icon: Package, color: 'bg-orange-500', trend: '' },
+    { label: 'Despesas Operacionais', value: formatCurrency(stats.expenses), icon: ArrowDownRight, color: 'bg-red-500', trend: '' },
+    { label: 'Lucro Líquido', value: formatCurrency(stats.revenue - stats.totalCost - stats.expenses), icon: TrendingUp, color: 'bg-blue-600', trend: '' },
   ];
 
   return (
@@ -350,9 +358,11 @@ export default function Dashboard({ user }: { user: any }) {
                 <card.icon className="w-6 h-6" />
               </div>
               <div className="flex flex-col items-end">
-                <span className={`text-xs font-black px-2 py-1 rounded-lg ${card.trend.startsWith('+') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {card.trend}
-                </span>
+                {card.trend && (
+                  <span className={`text-xs font-black px-2 py-1 rounded-lg ${card.trend.startsWith('+') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {card.trend}
+                  </span>
+                )}
               </div>
             </div>
             <p className="text-gray-400 text-xs font-black uppercase tracking-widest">{card.label}</p>

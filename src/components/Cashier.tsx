@@ -48,6 +48,12 @@ export default function Cashier({ user }: { user: any }) {
   const [activeSession, setActiveSession] = useState(null);
   const [movements, setMovements] = useState([]);
   const [sessionsHistory, setSessionsHistory] = useState([]);
+  const [historyDateRange, setHistoryDateRange] = useState({
+    start: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
+    end: format(new Date(), 'yyyy-MM-dd')
+  });
+  const [historyChartData, setHistoryChartData] = useState<any[]>([]);
+  const [historyTopProducts, setHistoryTopProducts] = useState<any[]>([]);
   const [view, setView] = useState('overview'); // 'overview' or 'history'
   const [loading, setLoading] = useState(true);
   const [isOpeningModal, setIsOpeningModal] = useState(false);
@@ -166,6 +172,10 @@ export default function Cashier({ user }: { user: any }) {
     }
   }, [activeSession]);
 
+  useEffect(() => {
+    fetchSessionsHistory();
+  }, [historyDateRange]);
+
   const checkActiveSession = async () => {
     try {
       const { data, error: sbError } = await supabase
@@ -187,14 +197,162 @@ export default function Cashier({ user }: { user: any }) {
 
   const fetchSessionsHistory = async () => {
     try {
-      const { data } = await supabase
-        .from('cashier_sessions')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'closed')
-        .order('closed_at', { ascending: false })
-        .limit(20);
-      setSessionsHistory(data || []);
+      const start = historyDateRange.start + 'T00:00:00';
+      const end = historyDateRange.end + 'T23:59:59';
+
+      const [sessionsRes, salesRes, ordersRes, productsRes] = await Promise.all([
+        supabase.from('cashier_sessions')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('status', 'closed')
+          .gte('opened_at', start)
+          .lte('opened_at', end)
+          .order('closed_at', { ascending: false }),
+        supabase.from('sales')
+          .select('*')
+          .eq('user_id', user.id)
+          .gte('created_at', start)
+          .lte('created_at', end),
+        supabase.from('service_orders')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('status', 'delivered')
+          .gte('updated_at', start)
+          .lte('updated_at', end),
+        supabase.from('products')
+          .select('*')
+          .eq('user_id', user.id)
+      ]);
+
+      const sessions = sessionsRes.data || [];
+      const allSales = salesRes.data || [];
+      const allOrders = ordersRes.data || [];
+      const allProducts = productsRes.data || [];
+
+      const productMap = new Map();
+      allProducts.forEach(p => productMap.set(p.id, p));
+
+      const parseCost = (val: any) => {
+        if (val === undefined || val === null || val === '') return 0;
+        const num = Number(String(val).replace(',', '.'));
+        return isNaN(num) ? 0 : num;
+      };
+
+      // --- Chart Data Processing ---
+      const dailySales: Record<string, number> = {};
+      const productSales: Record<string, { name: string, total: number, quantity: number }> = {};
+
+      allSales.forEach(sale => {
+        const date = format(parseISO(sale.created_at), 'dd/MM');
+        dailySales[date] = (dailySales[date] || 0) + (Number(sale.total) || 0);
+
+        const items = Array.isArray(sale.items) ? sale.items.filter((i:any) => i.productId !== 'METADATA') : [];
+        items.forEach((item: any) => {
+          const pId = item.productId;
+          if (pId) {
+            if (!productSales[pId]) productSales[pId] = { name: item.name || productMap.get(pId)?.name || 'Produto', total: 0, quantity: 0 };
+            productSales[pId].quantity += (Number(item.quantity) || 1);
+            productSales[pId].total += (Number(item.price) || 0) * (Number(item.quantity) || 1);
+          }
+        });
+      });
+
+      allOrders.forEach(order => {
+        const date = format(parseISO(order.updated_at), 'dd/MM');
+        dailySales[date] = (dailySales[date] || 0) + (Number(order.total_value) || 0);
+
+        const parts = order.parts_used as any[] || [];
+        parts.forEach(part => {
+          const pId = part.productId;
+          if (pId) {
+            if (!productSales[pId]) productSales[pId] = { name: part.name || productMap.get(pId)?.name || 'Peça', total: 0, quantity: 0 };
+            productSales[pId].quantity += (Number(part.quantity) || 1);
+            productSales[pId].total += (Number(part.price) || 0) * (Number(part.quantity) || 1);
+          }
+        });
+      });
+
+      const chartData = Object.entries(dailySales)
+        .map(([date, total]) => ({ date, total }))
+        .sort((a, b) => {
+          // Sort by date assuming dd/MM format and same year for simplicity in this view
+          const [dayA, monthA] = a.date.split('/');
+          const [dayB, monthB] = b.date.split('/');
+          return new Date(2000, Number(monthA)-1, Number(dayA)).getTime() - new Date(2000, Number(monthB)-1, Number(dayB)).getTime();
+        });
+
+      const topProducts = Object.values(productSales)
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 5);
+
+      setHistoryChartData(chartData);
+      setHistoryTopProducts(topProducts);
+
+      if (sessions.length === 0) {
+        setSessionsHistory([]);
+        return;
+      }
+
+      const enrichedSessions = sessions.map((session) => {
+        const sStart = new Date(session.opened_at).getTime();
+        const sEnd = session.closed_at ? new Date(session.closed_at).getTime() : new Date().getTime();
+
+        const sessionSales = allSales.filter(s => {
+          const t = new Date(s.created_at).getTime();
+          return t >= sStart && t <= sEnd;
+        });
+        const sessionOrders = allOrders.filter(o => {
+          const t = new Date(o.updated_at).getTime();
+          return t >= sStart && t <= sEnd;
+        });
+
+        let totalDiscounts = 0;
+        let totalAdditions = 0;
+        let totalCost = 0;
+
+        sessionSales.forEach(sale => {
+          const metadata = Array.isArray(sale.items) ? sale.items.find((i: any) => i.productId === 'METADATA') : null;
+          totalDiscounts += metadata ? (metadata.discount || 0) : (sale.discount || 0);
+          totalAdditions += metadata ? (metadata.addition || 0) : (sale.addition || 0);
+
+          const items = Array.isArray(sale.items) ? sale.items.filter((i: any) => i.productId !== 'METADATA') : sale.items;
+          items?.forEach((item: any) => {
+            const quantity = Number(item.quantity) || 1;
+            const productId = item.productId;
+            const product = productMap.get(productId);
+            
+            if (item.cost !== undefined) {
+              totalCost += parseCost(item.cost) * quantity;
+            } else if (productId) {
+              totalCost += parseCost(product?.cost) * quantity;
+            }
+          });
+        });
+
+        sessionOrders.forEach(order => {
+          const parts = order.parts_used as any[];
+          parts?.forEach(part => {
+            const quantity = Number(part.quantity) || 1;
+            const productId = part.productId;
+            const product = productMap.get(productId);
+
+            if (part.cost !== undefined) {
+              totalCost += parseCost(part.cost) * quantity;
+            } else if (productId) {
+              totalCost += parseCost(product?.cost) * quantity;
+            }
+          });
+        });
+
+        return {
+          ...session,
+          calculated_discounts: totalDiscounts,
+          calculated_additions: totalAdditions,
+          calculated_cost: totalCost
+        };
+      });
+
+      setSessionsHistory(enrichedSessions);
     } catch (error) {
       console.error("Erro ao buscar histórico de sessões:", error);
     }
@@ -230,12 +388,19 @@ export default function Cashier({ user }: { user: any }) {
       if (ordersRes.error) throw ordersRes.error;
       if (movementsRes.error) throw movementsRes.error;
 
-      const mappedSales = (salesRes.data || []).map((s: any) => ({
-        ...s,
-        total: s.total,
-        paymentMethod: s.payment_method,
-        createdAt: s.created_at
-      }));
+      const mappedSales = (salesRes.data || []).map((s: any) => {
+        const metadata = Array.isArray(s.items) ? s.items.find((i: any) => i.productId === 'METADATA') : null;
+        return {
+          ...s,
+          total: s.total,
+          paymentMethod: s.payment_method,
+          createdAt: s.created_at,
+          discount: metadata ? metadata.discount : (s.discount || 0),
+          addition: metadata ? metadata.addition : (s.addition || 0),
+          payments: metadata ? metadata.payments : (s.payments || []),
+          items: Array.isArray(s.items) ? s.items.filter((i: any) => i.productId !== 'METADATA') : s.items
+        };
+      });
 
       const mappedOrders = (ordersRes.data || []).map((o: any) => ({
         ...o,
@@ -313,24 +478,39 @@ export default function Cashier({ user }: { user: any }) {
     submittingRef.current = true;
     try {
       const actual = parseCurrencyInput(closingAmount);
-      const { total: totalSales } = calculateSessionSales();
+      const { total: totalSales, discount: totalDiscounts, addition: totalAdditions } = calculateSessionSales();
       const { suprimento: totalSuprimentos, sangria: totalSangrias } = sessionTotals;
       const expected = calculateExpectedBalance();
       const diff = actual - expected;
 
-      const { error } = await supabase
+      let updateData: any = {
+        closed_at: new Date().toISOString(),
+        actual_amount: actual,
+        expected_amount: expected,
+        difference: diff,
+        total_sales: totalSales,
+        total_suprimentos: totalSuprimentos,
+        total_sangrias: totalSangrias,
+        total_discounts: totalDiscounts,
+        total_additions: totalAdditions,
+        status: 'closed'
+      };
+
+      let { error } = await supabase
         .from('cashier_sessions')
-        .update({
-          closed_at: new Date().toISOString(),
-          actual_amount: actual,
-          expected_amount: expected,
-          difference: diff,
-          total_sales: totalSales,
-          total_suprimentos: totalSuprimentos,
-          total_sangrias: totalSangrias,
-          status: 'closed'
-        })
+        .update(updateData)
         .eq('id', activeSession.id);
+
+      if (error && error.message.includes('Could not find the')) {
+        // Fallback for users who haven't run the migration
+        delete updateData.total_discounts;
+        delete updateData.total_additions;
+        const retryResult = await supabase
+          .from('cashier_sessions')
+          .update(updateData)
+          .eq('id', activeSession.id);
+        error = retryResult.error;
+      }
 
       if (error) {
         alert("Erro Supabase ao fechar: " + error.message);
@@ -485,23 +665,25 @@ export default function Cashier({ user }: { user: any }) {
   };
 
   const calculateSessionSales = () => {
-    if (!activeSession) return { total: 0, cash: 0, pix: 0, card: 0 };
+    if (!activeSession) return { total: 0, cash: 0, pix: 0, card: 0, discount: 0, addition: 0 };
     const sessionStart = new Date(activeSession.opened_at);
     
     const sessionSales = sales.filter(s => new Date(s.createdAt) >= sessionStart);
     const sessionOrders = serviceOrders.filter(o => new Date(o.updatedAt || o.createdAt) >= sessionStart);
     
     const allSessionTransactions = [
-      ...sessionSales.map(s => ({ ...s, total: s.total || 0, payment_method: s.paymentMethod || 'cash' })),
-      ...sessionOrders.map(o => ({ ...o, total: o.totalValue || 0, payment_method: o.payment_method || 'cash' }))
+      ...sessionSales.map(s => ({ ...s, total: s.total || 0, payment_method: s.paymentMethod || 'cash', discount: s.discount || 0, addition: s.addition || 0 })),
+      ...sessionOrders.map(o => ({ ...o, total: o.totalValue || 0, payment_method: o.payment_method || 'cash', discount: 0, addition: 0 }))
     ];
 
     const total = allSessionTransactions.reduce((acc, t) => acc + t.total, 0);
     const cash = allSessionTransactions.filter(t => t.payment_method === 'cash').reduce((acc, t) => acc + t.total, 0);
     const pix = allSessionTransactions.filter(t => t.payment_method === 'pix').reduce((acc, t) => acc + t.total, 0);
     const card = allSessionTransactions.filter(t => t.payment_method === 'credit_card' || t.payment_method === 'debit_card').reduce((acc, t) => acc + t.total, 0);
+    const discount = allSessionTransactions.reduce((acc, t) => acc + t.discount, 0);
+    const addition = allSessionTransactions.reduce((acc, t) => acc + t.addition, 0);
     
-    return { total, cash, pix, card };
+    return { total, cash, pix, card, discount, addition };
   };
 
   const calculateExpectedBalance = () => {
@@ -1065,19 +1247,79 @@ export default function Cashier({ user }: { user: any }) {
           </div>
         </>
       ) : (
-        <div className="bg-white rounded-3xl border border-orange-100 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-orange-50">
-            <h3 className="font-bold text-gray-900">Histórico de Fechamentos</h3>
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <h3 className="font-bold text-gray-900">Filtros do Histórico</h3>
+            <div className="flex items-center gap-2">
+              <input 
+                type="date" 
+                className="px-4 py-2 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-gray-700"
+                value={historyDateRange.start}
+                onChange={e => setHistoryDateRange({...historyDateRange, start: e.target.value})}
+              />
+              <span className="text-gray-400">até</span>
+              <input 
+                type="date" 
+                className="px-4 py-2 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-gray-700"
+                value={historyDateRange.end}
+                onChange={e => setHistoryDateRange({...historyDateRange, end: e.target.value})}
+              />
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-orange-50/50 text-gray-500 text-xs font-bold uppercase tracking-wider">
-                <tr>
-                  <th className="px-6 py-4">Abertura</th>
-                  <th className="px-6 py-4">Fechamento</th>
-                  <th className="px-6 py-4 text-right">Inicial</th>
-                  <th className="px-6 py-4 text-right">Bruto</th>
-                  <th className="px-6 py-4 text-right">Líquido</th>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-6">Dias de Maior Venda</h3>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={historyChartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(value) => `R$ ${value}`} />
+                    <Tooltip 
+                      cursor={{ fill: '#fff7ed' }}
+                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                      formatter={(value: number) => [formatCurrency(value), 'Total']}
+                    />
+                    <Bar dataKey="total" fill="#f97316" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-6">Produtos Mais Vendidos</h3>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={historyTopProducts} layout="vertical" margin={{ left: 50 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(value) => `R$ ${value}`} />
+                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} width={100} />
+                    <Tooltip 
+                      cursor={{ fill: '#fff7ed' }}
+                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                      formatter={(value: number) => [formatCurrency(value), 'Total']}
+                    />
+                    <Bar dataKey="total" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl border border-orange-100 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-orange-50">
+              <h3 className="font-bold text-gray-900">Histórico de Fechamentos</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-orange-50/50 text-gray-500 text-xs font-bold uppercase tracking-wider">
+                  <tr>
+                    <th className="px-6 py-4">Abertura</th>
+                    <th className="px-6 py-4">Fechamento</th>
+                    <th className="px-6 py-4 text-right">Inicial</th>
+                  <th className="px-6 py-4 text-right">Faturamento Bruto</th>
+                  <th className="px-6 py-4 text-right">Lucro Líquido</th>
                   <th className="px-6 py-4 text-right">Esperado</th>
                   <th className="px-6 py-4 text-right">Informado</th>
                   <th className="px-6 py-4 text-right">Diferença</th>
@@ -1097,10 +1339,10 @@ export default function Cashier({ user }: { user: any }) {
                       {formatCurrency(session.initial_amount)}
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-bold text-orange-600">
-                      {formatCurrency(session.total_sales || 0)}
+                      {formatCurrency((session.total_sales || 0) + (session.calculated_discounts || 0) - (session.calculated_additions || 0))}
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-bold text-emerald-600">
-                      {formatCurrency((session.total_sales || 0) + (session.total_suprimentos || 0) - (session.total_sangrias || 0))}
+                      {formatCurrency((session.total_sales || 0) - (session.calculated_cost || 0))}
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-bold text-gray-900">
                       {formatCurrency(session.expected_amount)}
@@ -1150,6 +1392,7 @@ export default function Cashier({ user }: { user: any }) {
               </tbody>
             </table>
           </div>
+        </div>
         </div>
       )}
 
@@ -1341,8 +1584,8 @@ export default function Cashier({ user }: { user: any }) {
                   <p className="text-lg font-black text-orange-900">{formatCurrency(selectedSessionDetails.initial_amount)}</p>
                 </div>
                 <div className="bg-orange-600 p-4 rounded-2xl shadow-lg shadow-orange-100">
-                  <p className="text-[10px] font-bold text-orange-100 uppercase mb-1">Total Bruto</p>
-                  <p className="text-lg font-black text-white">{formatCurrency(selectedSessionDetails.total_sales || 0)}</p>
+                  <p className="text-[10px] font-bold text-orange-100 uppercase mb-1">Faturamento Bruto</p>
+                  <p className="text-lg font-black text-white">{formatCurrency((selectedSessionDetails.total_sales || 0) + (selectedSessionDetails.calculated_discounts || 0) - (selectedSessionDetails.calculated_additions || 0))}</p>
                 </div>
                 <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
                   <p className="text-[10px] font-bold text-emerald-500 uppercase mb-1">Suprimentos</p>
@@ -1361,9 +1604,21 @@ export default function Cashier({ user }: { user: any }) {
                 </h4>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                    <span className="text-sm text-gray-600 font-medium">Total Líquido (Vendas + Entradas - Saídas)</span>
+                    <span className="text-sm text-gray-600 font-medium">Faturamento Líquido (Vendas com Descontos/Acréscimos)</span>
                     <span className="text-sm font-black text-gray-900">
-                      {formatCurrency((selectedSessionDetails.total_sales || 0) + (selectedSessionDetails.total_suprimentos || 0) - (selectedSessionDetails.total_sangrias || 0))}
+                      {formatCurrency(selectedSessionDetails.total_sales || 0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                    <span className="text-sm text-gray-600 font-medium">Custo das Vendas</span>
+                    <span className="text-sm font-black text-red-600">
+                      -{formatCurrency(selectedSessionDetails.calculated_cost || 0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                    <span className="text-sm text-gray-600 font-medium">Lucro Líquido</span>
+                    <span className="text-sm font-black text-emerald-600">
+                      {formatCurrency((selectedSessionDetails.total_sales || 0) - (selectedSessionDetails.calculated_cost || 0))}
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-gray-200">

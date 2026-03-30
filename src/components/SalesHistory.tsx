@@ -103,7 +103,17 @@ export default function SalesHistory({ user, onNavigate }: { user: any, onNaviga
     if (error) {
       console.error('Error fetching sales:', error);
     } else {
-      setSales(data || []);
+      const mappedSales = (data || []).map((s: any) => {
+        const metadata = Array.isArray(s.items) ? s.items.find((i: any) => i.productId === 'METADATA') : null;
+        return {
+          ...s,
+          discount: metadata ? metadata.discount : (s.discount || 0),
+          addition: metadata ? metadata.addition : (s.addition || 0),
+          payments: metadata ? metadata.payments : (s.payments || []),
+          items: Array.isArray(s.items) ? s.items.filter((i: any) => i.productId !== 'METADATA') : s.items
+        };
+      });
+      setSales(mappedSales);
     }
   };
 
@@ -212,6 +222,7 @@ export default function SalesHistory({ user, onNavigate }: { user: any, onNaviga
       case 'credit_card':
       case 'debit_card': return <CreditCard className="w-4 h-4" />;
       case 'pix': return <QrCode className="w-4 h-4" />;
+      case 'multiple': return <CreditCard className="w-4 h-4" />;
       default: return <CreditCard className="w-4 h-4" />;
     }
   };
@@ -222,6 +233,7 @@ export default function SalesHistory({ user, onNavigate }: { user: any, onNaviga
       case 'credit_card': return 'Crédito';
       case 'debit_card': return 'Débito';
       case 'pix': return 'PIX';
+      case 'multiple': return 'Múltiplos';
       default: return method;
     }
   };
@@ -246,10 +258,15 @@ export default function SalesHistory({ user, onNavigate }: { user: any, onNaviga
     let totalPeriod = 0;
 
     filteredSales.forEach(sale => {
+      let paymentText = getPaymentLabel(sale.payment_method);
+      if (sale.payment_method === 'multiple' && sale.payments) {
+        paymentText = sale.payments.map((p: any) => `${getPaymentLabel(p.method)} (${formatCurrency(p.amount)})`).join(', ');
+      }
+
       const saleData = [
         formatDate(sale.created_at),
         sale.items.map((i: any) => `${i.quantity}x ${i.name}`).join(', '),
-        getPaymentLabel(sale.payment_method),
+        paymentText,
         formatCurrency(sale.total)
       ];
       tableRows.push(saleData);
@@ -425,13 +442,28 @@ export default function SalesHistory({ user, onNavigate }: { user: any, onNaviga
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex items-center gap-2 text-gray-700">
-                      {getPaymentIcon(sale.payment_method)}
-                      <span className="text-sm font-medium">{getPaymentLabel(sale.payment_method)}</span>
+                    <div className="flex flex-col gap-1 text-gray-700">
+                      <div className="flex items-center gap-2">
+                        {getPaymentIcon(sale.payment_method)}
+                        <span className="text-sm font-medium">{getPaymentLabel(sale.payment_method)}</span>
+                      </div>
+                      {sale.payment_method === 'multiple' && sale.payments && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {sale.payments.map((p: any, idx: number) => (
+                            <div key={idx}>{getPaymentLabel(p.method)}: {formatCurrency(p.amount)}</div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </td>
-                  <td className="px-6 py-4 font-bold text-orange-600">
-                    {formatCurrency(sale.total)}
+                  <td className="px-6 py-4">
+                    <div className="font-bold text-orange-600">{formatCurrency(sale.total)}</div>
+                    {(sale.discount > 0 || sale.addition > 0) && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        {sale.discount > 0 && <span className="text-green-600 block">Desc: -{formatCurrency(sale.discount)}</span>}
+                        {sale.addition > 0 && <span className="text-red-600 block">Acrés: +{formatCurrency(sale.addition)}</span>}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
