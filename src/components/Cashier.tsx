@@ -37,7 +37,7 @@ import {
 } from 'recharts';
 import { supabase } from '../supabase';
 import { formatCurrency } from '../utils/format';
-import { format, startOfMonth, endOfMonth, subDays, isWithinInterval, parseISO } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subDays, isWithinInterval, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfYear, endOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 export default function Cashier({ user }: { user: any }) {
@@ -54,6 +54,7 @@ export default function Cashier({ user }: { user: any }) {
   });
   const [historyChartData, setHistoryChartData] = useState<any[]>([]);
   const [historyTopProducts, setHistoryTopProducts] = useState<any[]>([]);
+  const [historyTotals, setHistoryTotals] = useState({ gross: 0, net: 0 });
   const [view, setView] = useState('overview'); // 'overview' or 'history'
   const [loading, setLoading] = useState(true);
   const [isOpeningModal, setIsOpeningModal] = useState(false);
@@ -352,6 +353,10 @@ export default function Cashier({ user }: { user: any }) {
         };
       });
 
+      const totalGross = enrichedSessions.reduce((acc, s) => acc + (s.total_sales || 0) + (s.calculated_discounts || 0) - (s.calculated_additions || 0), 0);
+      const totalNet = enrichedSessions.reduce((acc, s) => acc + (s.total_sales || 0) - (s.calculated_cost || 0), 0);
+
+      setHistoryTotals({ gross: totalGross, net: totalNet });
       setSessionsHistory(enrichedSessions);
     } catch (error) {
       console.error("Erro ao buscar histórico de sessões:", error);
@@ -421,6 +426,33 @@ export default function Cashier({ user }: { user: any }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleQuickFilter = (type: 'today' | 'week' | 'month' | 'year') => {
+    const now = new Date();
+    let start, end;
+    switch (type) {
+      case 'today':
+        start = startOfDay(now);
+        end = endOfDay(now);
+        break;
+      case 'week':
+        start = startOfWeek(now, { weekStartsOn: 0 });
+        end = endOfWeek(now, { weekStartsOn: 0 });
+        break;
+      case 'month':
+        start = startOfMonth(now);
+        end = endOfMonth(now);
+        break;
+      case 'year':
+        start = startOfYear(now);
+        end = endOfYear(now);
+        break;
+    }
+    setHistoryDateRange({
+      start: format(start, 'yyyy-MM-dd'),
+      end: format(end, 'yyyy-MM-dd')
+    });
   };
 
   const handleOpenCashier = async () => {
@@ -1248,22 +1280,70 @@ export default function Cashier({ user }: { user: any }) {
         </>
       ) : (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <h3 className="font-bold text-gray-900">Filtros do Histórico</h3>
-            <div className="flex items-center gap-2">
-              <input 
-                type="date" 
-                className="px-4 py-2 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-gray-700"
-                value={historyDateRange.start}
-                onChange={e => setHistoryDateRange({...historyDateRange, start: e.target.value})}
-              />
-              <span className="text-gray-400">até</span>
-              <input 
-                type="date" 
-                className="px-4 py-2 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-gray-700"
-                value={historyDateRange.end}
-                onChange={e => setHistoryDateRange({...historyDateRange, end: e.target.value})}
-              />
+          <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm flex flex-col gap-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <h3 className="font-bold text-gray-900">Filtros do Histórico</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => handleQuickFilter('today')}
+                  className="px-4 py-2 bg-orange-50 text-orange-600 hover:bg-orange-100 rounded-xl text-sm font-medium transition-colors"
+                >
+                  Hoje
+                </button>
+                <button
+                  onClick={() => handleQuickFilter('week')}
+                  className="px-4 py-2 bg-orange-50 text-orange-600 hover:bg-orange-100 rounded-xl text-sm font-medium transition-colors"
+                >
+                  Semana
+                </button>
+                <button
+                  onClick={() => handleQuickFilter('month')}
+                  className="px-4 py-2 bg-orange-50 text-orange-600 hover:bg-orange-100 rounded-xl text-sm font-medium transition-colors"
+                >
+                  Mês
+                </button>
+                <button
+                  onClick={() => handleQuickFilter('year')}
+                  className="px-4 py-2 bg-orange-50 text-orange-600 hover:bg-orange-100 rounded-xl text-sm font-medium transition-colors"
+                >
+                  Ano
+                </button>
+                <div className="h-6 w-px bg-gray-200 mx-2 hidden md:block"></div>
+                <input 
+                  type="date" 
+                  className="px-4 py-2 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-gray-700"
+                  value={historyDateRange.start}
+                  onChange={e => setHistoryDateRange({...historyDateRange, start: e.target.value})}
+                />
+                <span className="text-gray-400">até</span>
+                <input 
+                  type="date" 
+                  className="px-4 py-2 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-gray-700"
+                  value={historyDateRange.end}
+                  onChange={e => setHistoryDateRange({...historyDateRange, end: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-orange-600 mb-1">Faturamento Bruto (Período)</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatCurrency(historyTotals.gross)}</p>
+                </div>
+                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm">
+                  <TrendingUp className="w-6 h-6 text-orange-500" />
+                </div>
+              </div>
+              <div className="bg-green-50 p-4 rounded-2xl border border-green-100 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-green-600 mb-1">Lucro Líquido (Período)</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatCurrency(historyTotals.net)}</p>
+                </div>
+                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm">
+                  <DollarSign className="w-6 h-6 text-green-500" />
+                </div>
+              </div>
             </div>
           </div>
 

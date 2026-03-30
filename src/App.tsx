@@ -382,7 +382,7 @@ export default function App() {
       <main className="flex-1 overflow-auto p-4 lg:p-8">
         <div className="max-w-7xl mx-auto">
           <div className={cn(activeTab !== 'dashboard' && "hidden")}>
-            <Dashboard user={user} />
+            <Dashboard user={user} isActive={activeTab === 'dashboard'} />
           </div>
           <div className={cn(activeTab !== 'inventory' && "hidden")}>
             <Inventory user={user} />
@@ -403,7 +403,7 @@ export default function App() {
             <Cashier user={user} />
           </div>
           <div className={cn(activeTab !== 'expenses' && "hidden")}>
-            <Expenses user={user} />
+            <Expenses user={user} isActive={activeTab === 'expenses'} />
           </div>
           <div className={cn(activeTab !== 'customers' && "hidden")}>
             <Customers user={user} />

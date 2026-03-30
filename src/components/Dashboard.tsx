@@ -37,7 +37,7 @@ import { ptBR } from 'date-fns/locale';
 
 const COLORS = ['#f97316', '#fb923c', '#fdba74', '#fed7aa', '#ffedd5', '#ea580c', '#c2410c', '#9a3412'];
 
-export default function Dashboard({ user }: { user: any }) {
+export default function Dashboard({ user, isActive = true }: { user: any, isActive?: boolean }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState({
@@ -233,8 +233,11 @@ export default function Dashboard({ user }: { user: any }) {
         setIsLoading(false);
       }
     };
-    fetchData();
-  }, [dateRange, user.id]);
+    
+    if (isActive) {
+      fetchData();
+    }
+  }, [dateRange, user.id, isActive]);
 
   if (isLoading) {
     return (

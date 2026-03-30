@@ -32,7 +32,7 @@ interface Expense {
   created_at: string;
 }
 
-export default function Expenses({ user }: { user: any }) {
+export default function Expenses({ user, isActive = true }: { user: any, isActive?: boolean }) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -64,11 +64,11 @@ export default function Expenses({ user }: { user: any }) {
   ];
 
   useEffect(() => {
-    if (user?.id) {
+    if (user?.id && isActive) {
       fetchExpenses();
       fetchActiveSession();
     }
-  }, [user?.id]);
+  }, [user?.id, isActive]);
 
   const fetchActiveSession = async () => {
     try {
