@@ -11,7 +11,8 @@ import {
   AlertTriangle,
   Banknote,
   DollarSign,
-  Briefcase
+  Briefcase,
+  Download
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
@@ -49,6 +50,26 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [authError, setAuthError] = useState('');
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setDeferredPrompt(e);
+    });
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    }
+  };
 
   useEffect(() => {
     // Check for missing config
@@ -332,7 +353,7 @@ export default function App() {
             </span>
           </div>
 
-          <nav className="flex-1 p-4 space-y-2">
+          <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
             {navItems.map((item) => (
               <button
                 key={item.id}
@@ -354,6 +375,15 @@ export default function App() {
           </nav>
 
           <div className="p-4 border-t border-orange-100">
+            {deferredPrompt && (
+              <button
+                onClick={handleInstallClick}
+                className="w-full flex items-center gap-3 px-4 py-3 mb-4 rounded-xl bg-orange-100 text-orange-700 hover:bg-orange-200 transition-all font-bold shadow-sm"
+              >
+                <Download className="w-5 h-5" />
+                Instalar App
+              </button>
+            )}
             <div className="flex items-center gap-3 px-4 py-3 mb-4">
               <img 
                 src={user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${profile?.store_name || user.user_metadata?.full_name || user.email}`} 
