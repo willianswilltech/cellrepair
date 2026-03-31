@@ -45,9 +45,15 @@ export default function Cashier({ user }: { user: any }) {
   const [error, setError] = useState<string | null>(null);
   const [sales, setSales] = useState([]);
   const [serviceOrders, setServiceOrders] = useState([]);
-  const [activeSession, setActiveSession] = useState(null);
+  const [activeSession, setActiveSession] = useState<any>(null);
+  const activeSessionRef = useRef<any>(null);
   const [movements, setMovements] = useState([]);
   const [sessionsHistory, setSessionsHistory] = useState([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  useEffect(() => {
+    activeSessionRef.current = activeSession;
+  }, [activeSession]);
   const [historyDateRange, setHistoryDateRange] = useState({
     start: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
     end: format(new Date(), 'yyyy-MM-dd')
@@ -109,6 +115,12 @@ export default function Cashier({ user }: { user: any }) {
   });
 
   useEffect(() => {
+    if (refreshTrigger > 0) {
+      fetchData();
+    }
+  }, [refreshTrigger]);
+
+  useEffect(() => {
     const testConnection = async () => {
       try {
         const { error: sbError } = await supabase
@@ -134,12 +146,12 @@ export default function Cashier({ user }: { user: any }) {
 
     const salesChannel = supabase
       .channel('cashier_sales')
-      .on('postgres_changes', { event: '*', table: 'sales' }, () => fetchData())
+      .on('postgres_changes', { event: '*', table: 'sales' }, () => setRefreshTrigger(prev => prev + 1))
       .subscribe();
 
     const ordersChannel = supabase
       .channel('cashier_orders')
-      .on('postgres_changes', { event: '*', table: 'service_orders' }, () => fetchData())
+      .on('postgres_changes', { event: '*', table: 'service_orders' }, () => setRefreshTrigger(prev => prev + 1))
       .subscribe();
 
     const sessionChannel = supabase
@@ -153,7 +165,7 @@ export default function Cashier({ user }: { user: any }) {
     const movementChannel = supabase
       .channel('cashier_movements')
       .on('postgres_changes', { event: '*', table: 'cashier_movements' }, () => {
-        if (activeSession) fetchMovements(activeSession.id);
+        if (activeSessionRef.current) fetchMovements(activeSessionRef.current.id);
       })
       .subscribe();
 
@@ -417,7 +429,7 @@ export default function Cashier({ user }: { user: any }) {
       setSales(mappedSales);
       setServiceOrders(mappedOrders);
       
-      if (!activeSession) {
+      if (!activeSessionRef.current) {
         setMovements(movementsRes.data || []);
       }
     } catch (err: any) {

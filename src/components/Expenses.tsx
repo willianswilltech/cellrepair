@@ -104,6 +104,73 @@ export default function Expenses({ user, isActive = true }: { user: any, isActiv
     }
   };
 
+  const syncCashierMovement = async (expenseId: string, newStatus: 'paid' | 'pending', amount: number, description: string, paymentMethod: string, oldDescription?: string, oldAmount?: number) => {
+    if (!activeSession) return;
+
+    try {
+      // Try to find an existing movement for this expense
+      let { data: movements } = await supabase
+        .from('cashier_movements')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('type', 'sangria')
+        .like('description', `%[EXP-${expenseId}]%`);
+
+      // Fallback for older expenses that don't have the ID tag
+      if ((!movements || movements.length === 0) && oldDescription && oldAmount) {
+        const { data: fallbackMovements } = await supabase
+          .from('cashier_movements')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('type', 'sangria')
+          .eq('amount', oldAmount)
+          .eq('description', `Pagamento de Despesa: ${oldDescription}`);
+        
+        if (fallbackMovements && fallbackMovements.length > 0) {
+          movements = fallbackMovements;
+        }
+      }
+
+      const existingMovement = movements && movements.length > 0 ? movements[0] : null;
+
+      if (newStatus === 'paid') {
+        if (existingMovement) {
+          // Update existing movement
+          await supabase
+            .from('cashier_movements')
+            .update({
+              amount: amount,
+              description: `Pagamento de Despesa: ${description} [EXP-${expenseId}]`,
+              payment_method: paymentMethod
+            })
+            .eq('id', existingMovement.id);
+        } else {
+          // Insert new movement
+          await supabase
+            .from('cashier_movements')
+            .insert([{
+              user_id: user.id,
+              session_id: activeSession.id,
+              type: 'sangria',
+              amount: amount,
+              description: `Pagamento de Despesa: ${description} [EXP-${expenseId}]`,
+              payment_method: paymentMethod
+            }]);
+        }
+      } else if (newStatus === 'pending') {
+        if (existingMovement) {
+          // Delete existing movement
+          await supabase
+            .from('cashier_movements')
+            .delete()
+            .eq('id', existingMovement.id);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao sincronizar movimento de caixa:', err);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log('Submitting expense form...', formData);
@@ -132,7 +199,9 @@ export default function Expenses({ user, isActive = true }: { user: any, isActiv
         frequency: formData.is_recurring ? formData.frequency : null,
         payment_method: formData.payment_method,
         user_id: user.id,
-        paid_at: formData.status === 'paid' ? new Date().toISOString() : null
+        paid_at: formData.status === 'paid' 
+          ? (editingExpense && editingExpense.status === 'paid' && editingExpense.paid_at ? editingExpense.paid_at : new Date().toISOString()) 
+          : null
       };
 
       if (editingExpense) {
@@ -143,27 +212,33 @@ export default function Expenses({ user, isActive = true }: { user: any, isActiv
           .eq('id', editingExpense.id)
           .eq('user_id', user.id);
         if (error) throw error;
+        
+        await syncCashierMovement(
+          editingExpense.id,
+          formData.status as 'paid' | 'pending',
+          amount,
+          formData.description,
+          formData.payment_method,
+          editingExpense.description,
+          editingExpense.amount
+        );
       } else {
         console.log('Inserting new expense...');
-        const { error } = await supabase
+        const { data: newExpense, error } = await supabase
           .from('expenses')
-          .insert([payload]);
+          .insert([payload])
+          .select()
+          .single();
         if (error) throw error;
 
-        // If marked as paid on creation, record cashier movement
         if (formData.status === 'paid' && activeSession) {
-          console.log('Recording cashier movement...');
-          const { error: movementError } = await supabase
-            .from('cashier_movements')
-            .insert([{
-              user_id: user.id,
-              session_id: activeSession.id,
-              type: 'sangria',
-              amount: amount,
-              description: `Pagamento de Despesa: ${formData.description}`,
-              payment_method: formData.payment_method
-            }]);
-          if (movementError) console.error('Erro ao registrar movimento de caixa:', movementError);
+          await syncCashierMovement(
+            newExpense.id,
+            'paid',
+            amount,
+            formData.description,
+            formData.payment_method
+          );
         }
       }
       
@@ -218,19 +293,13 @@ export default function Expenses({ user, isActive = true }: { user: any, isActiv
           return;
         }
 
-        // Record cashier movement (sangria)
-        const { error: movementError } = await supabase
-          .from('cashier_movements')
-          .insert([{
-            user_id: user.id,
-            session_id: activeSession.id,
-            type: 'sangria',
-            amount: expense.amount,
-            description: `Pagamento de Despesa: ${expense.description}`,
-            payment_method: expense.payment_method || 'cash'
-          }]);
-        
-        if (movementError) throw movementError;
+        await syncCashierMovement(
+          expense.id,
+          'paid',
+          expense.amount,
+          expense.description,
+          expense.payment_method || 'cash'
+        );
 
         // If recurring, create next expense
         if (expense.is_recurring) {
@@ -252,6 +321,17 @@ export default function Expenses({ user, isActive = true }: { user: any, isActiv
             payment_method: expense.payment_method
           }]);
         }
+      } else {
+        // Changing to pending, remove movement
+        await syncCashierMovement(
+          expense.id,
+          'pending',
+          expense.amount,
+          expense.description,
+          expense.payment_method || 'cash',
+          expense.description,
+          expense.amount
+        );
       }
 
       const { error } = await supabase
@@ -269,13 +349,26 @@ export default function Expenses({ user, isActive = true }: { user: any, isActiv
     }
   };
 
-  const deleteExpense = async (id: string) => {
+  const deleteExpense = async (expense: Expense) => {
     if (!confirm('Tem certeza que deseja excluir esta despesa?')) return;
     try {
+      // If it was paid, remove the cashier movement
+      if (expense.status === 'paid') {
+        await syncCashierMovement(
+          expense.id,
+          'pending', // 'pending' triggers deletion of the movement
+          expense.amount,
+          expense.description,
+          expense.payment_method || 'cash',
+          expense.description,
+          expense.amount
+        );
+      }
+
       const { error } = await supabase
         .from('expenses')
         .delete()
-        .eq('id', id);
+        .eq('id', expense.id);
 
       if (error) throw error;
       fetchExpenses();
@@ -422,7 +515,7 @@ export default function Expenses({ user, isActive = true }: { user: any, isActiv
                         <Edit2 className="w-5 h-5" />
                       </button>
                       <button 
-                        onClick={() => deleteExpense(expense.id)}
+                        onClick={() => deleteExpense(expense)}
                         className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-all"
                       >
                         <Trash2 className="w-5 h-5" />

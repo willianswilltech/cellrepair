@@ -43,6 +43,15 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   const [lastSale, setLastSale] = useState<any>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [activeSession, setActiveSession] = useState<any>(null);
+  const [selectedPaymentIndex, setSelectedPaymentIndex] = useState<number>(0);
+
+  const PAYMENT_METHODS = [
+    { id: 'cash', label: 'Dinheiro', icon: Banknote, key: 'F1' },
+    { id: 'credit_card', label: 'Crédito', icon: CreditCard, key: 'F2' },
+    { id: 'debit_card', label: 'Débito', icon: CreditCard, key: 'F3' },
+    { id: 'pix', label: 'PIX', icon: QrCode, key: 'F4' },
+  ];
+
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -402,11 +411,32 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
           confirmCheckout();
         }
       }
+
+      // Handle arrow keys for payment method selection if not focused on an input
+      if (document.activeElement?.tagName !== 'INPUT') {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSelectedPaymentIndex(prev => (prev + 1) % 4);
+        }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSelectedPaymentIndex(prev => (prev - 1 + 4) % 4);
+        }
+        if (e.key === 'Enter') {
+          if (cart.length > 0 && remainingAmount > 0) {
+            e.preventDefault();
+            handleAddPayment(PAYMENT_METHODS[selectedPaymentIndex].id);
+          } else if (cart.length > 0 && remainingAmount <= 0) {
+            e.preventDefault();
+            confirmCheckout();
+          }
+        }
+      }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [cart, isProcessing, activeSession, paymentMethod, handleAddPayment, confirmCheckout, remainingAmount]);
+  }, [cart, isProcessing, activeSession, paymentMethod, handleAddPayment, confirmCheckout, remainingAmount, selectedPaymentIndex, PAYMENT_METHODS]);
 
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -802,25 +832,41 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
                       setCurrentPaymentAmount(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(remainingAmount));
                     }
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddPayment(PAYMENT_METHODS[selectedPaymentIndex].id);
+                    } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setSelectedPaymentIndex(prev => (prev + 1) % 4);
+                    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setSelectedPaymentIndex(prev => (prev - 1 + 4) % 4);
+                    }
+                  }}
                   className="w-full pl-8 pr-3 py-2 bg-white border border-orange-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-orange-500"
                   placeholder="0,00"
                 />
               </div>
               <div className="grid grid-cols-4 gap-1">
-                {[
-                  { id: 'cash', label: 'Dinheiro', icon: Banknote, key: 'F1' },
-                  { id: 'credit_card', label: 'Crédito', icon: CreditCard, key: 'F2' },
-                  { id: 'debit_card', label: 'Débito', icon: CreditCard, key: 'F3' },
-                  { id: 'pix', label: 'PIX', icon: QrCode, key: 'F4' },
-                ].map((method) => (
+                {PAYMENT_METHODS.map((method, index) => (
                   <button
                     key={method.id}
                     onClick={() => handleAddPayment(method.id)}
-                    className="flex flex-col items-center justify-center gap-1 p-1.5 bg-white border border-orange-200 rounded-lg hover:bg-orange-50 hover:border-orange-400 transition-all"
-                    title={`Adicionar pagamento em ${method.label}`}
+                    className={`relative flex flex-col items-center justify-center gap-1 p-1.5 border rounded-lg transition-all ${
+                      selectedPaymentIndex === index 
+                        ? 'bg-orange-100 border-orange-500 ring-2 ring-orange-500 ring-opacity-50' 
+                        : 'bg-white border-orange-200 hover:bg-orange-50 hover:border-orange-400'
+                    }`}
+                    title={`Adicionar pagamento em ${method.label} (${method.key})`}
                   >
-                    <method.icon className="w-4 h-4 text-gray-600" />
-                    <span className="text-[9px] font-bold text-gray-700">{method.label}</span>
+                    <div className="absolute top-0.5 right-1 text-[8px] font-bold text-orange-600 bg-orange-200 px-1 rounded">
+                      {method.key}
+                    </div>
+                    <method.icon className={`w-4 h-4 ${selectedPaymentIndex === index ? 'text-orange-600' : 'text-gray-600'}`} />
+                    <span className={`text-[9px] font-bold ${selectedPaymentIndex === index ? 'text-orange-700' : 'text-gray-700'}`}>
+                      {method.label}
+                    </span>
                   </button>
                 ))}
               </div>
