@@ -104,6 +104,8 @@ export default function Dashboard({ user, isActive = true }: { user: any, isActi
 
           const items = s.items as any[];
           items?.forEach(item => {
+            if (item.productId === 'METADATA') return;
+            
             const quantity = Number(item.quantity) || 1;
             const itemTotal = (Number(item.price) || 0) * quantity;
             const productId = item.productId;
