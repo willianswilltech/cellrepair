@@ -36,7 +36,7 @@ import {
   Cell
 } from 'recharts';
 import { supabase } from '../supabase';
-import { formatCurrency } from '../utils/format';
+import { formatCurrency, formatCurrencyInput, parseCurrencyInput } from '../utils/format';
 import { format, startOfMonth, endOfMonth, subDays, isWithinInterval, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfYear, endOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -89,23 +89,6 @@ export default function Cashier({ user }: { user: any }) {
       document.body.style.overflow = 'unset';
     };
   }, [isOpeningModal, isClosingModal, isMovementModal, isEditSessionModalOpen, isDeleteSessionModalOpen]);
-
-  const formatCurrencyInput = (value: string) => {
-    if (!value) return '';
-    const digits = value.replace(/\D/g, '');
-    const number = parseInt(digits) / 100;
-    if (isNaN(number)) return '';
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    }).format(number);
-  };
-
-  const parseCurrencyInput = (formattedValue: string) => {
-    if (!formattedValue) return 0;
-    const digits = formattedValue.replace(/\D/g, '');
-    return parseInt(digits) / 100 || 0;
-  };
   
   const [showFinanceDetails, setShowFinanceDetails] = useState(false);
   

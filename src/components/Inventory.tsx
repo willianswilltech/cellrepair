@@ -14,7 +14,7 @@ import {
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { supabase } from '../supabase';
 import { Product, Category } from '../types';
-import { formatCurrency, formatDate } from '../utils/format';
+import { formatCurrency, formatDate, formatCurrencyInput, parseCurrencyInput } from '../utils/format';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import JsBarcode from 'jsbarcode';
@@ -183,24 +183,24 @@ export default function Inventory({ user }: { user: any }) {
   };
 
   const handleNumericChange = (field: string, value: string, isInteger: boolean = false) => {
-    // Remove non-numeric characters except decimal point
-    let cleaned = value.replace(isInteger ? /[^\d]/g : /[^\d.]/g, '');
-    
-    // Ensure only one decimal point
     if (!isInteger) {
-      const parts = cleaned.split('.');
-      if (parts.length > 2) {
-        cleaned = parts[0] + '.' + parts.slice(1).join('');
-      }
+      setFormData({
+        ...formData,
+        [field]: parseCurrencyInput(value)
+      });
+      return;
     }
 
-    // Remove leading zeros unless it's "0." or just "0"
-    if (cleaned.length > 1 && cleaned.startsWith('0') && cleaned[1] !== '.') {
+    // Remove non-numeric characters
+    let cleaned = value.replace(/[^\d]/g, '');
+    
+    // Remove leading zeros unless it's just "0"
+    if (cleaned.length > 1 && cleaned.startsWith('0')) {
       cleaned = cleaned.replace(/^0+/, '');
     }
     
-    // If empty, default to 0 for the state but empty for the input display
-    const numValue = cleaned === '' ? 0 : (isInteger ? parseInt(cleaned) : parseFloat(cleaned));
+    // If empty, default to 0
+    const numValue = cleaned === '' ? 0 : parseInt(cleaned);
     
     setFormData({
       ...formData,
@@ -740,11 +740,11 @@ export default function Inventory({ user }: { user: any }) {
                   <input 
                     required
                     type="text" 
-                    inputMode="decimal"
+                    inputMode="numeric"
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.price === 0 ? '' : formData.price}
+                    value={formatCurrencyInput(formData.price)}
                     onChange={e => handleNumericChange('price', e.target.value)}
-                    placeholder="0.00"
+                    placeholder="R$ 0,00"
                   />
                 </div>
                 <div>
@@ -752,11 +752,11 @@ export default function Inventory({ user }: { user: any }) {
                   <input 
                     required
                     type="text" 
-                    inputMode="decimal"
+                    inputMode="numeric"
                     className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.cost === 0 ? '' : formData.cost}
+                    value={formatCurrencyInput(formData.cost)}
                     onChange={e => handleNumericChange('cost', e.target.value)}
-                    placeholder="0.00"
+                    placeholder="R$ 0,00"
                   />
                 </div>
                 <div>

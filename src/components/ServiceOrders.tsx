@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { ServiceOrder, Customer } from '../types';
-import { formatCurrency, formatDate } from '../utils/format';
+import { formatCurrency, formatDate, formatCurrencyInput, parseCurrencyInput } from '../utils/format';
 import { fetchAddressByCep } from '../utils/cep';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -46,6 +46,7 @@ export default function ServiceOrders({ user }: { user: any }) {
   const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
   const [deliveringOrder, setDeliveringOrder] = useState<ServiceOrder | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cash' | 'credit_card' | 'debit_card' | 'pix'>('cash');
+  const [printAfterSave, setPrintAfterSave] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
 
@@ -88,7 +89,6 @@ export default function ServiceOrders({ user }: { user: any }) {
     problem: '',
     observations: '',
     totalValue: 0,
-    laborValue: 0,
     status: 'pending' as const,
     warrantyPeriod: '90 dias',
     technicianId: '',
@@ -96,14 +96,11 @@ export default function ServiceOrders({ user }: { user: any }) {
     partsUsed: [] as any[]
   });
 
-  // Auto-calculate total value when parts or labor change
+  // Auto-calculate total value when parts change
   useEffect(() => {
     const partsTotal = formData.partsUsed.reduce((acc, part) => acc + (part.price * part.quantity), 0);
-    const newTotal = partsTotal + (Number(formData.laborValue) || 0);
-    if (newTotal !== formData.totalValue) {
-      setFormData(prev => ({ ...prev, totalValue: newTotal }));
-    }
-  }, [formData.partsUsed, formData.laborValue]);
+    setFormData(prev => ({ ...prev, totalValue: partsTotal }));
+  }, [formData.partsUsed]);
 
   const handleCepChange = async (cep: string) => {
     const cleanCep = cep.replace(/\D/g, '');
@@ -315,18 +312,47 @@ export default function ServiceOrders({ user }: { user: any }) {
           }
         }
 
-        const { error: submitError } = await supabase
+        let createdOrder = null;
+        const { data: newOrder, error: submitError } = await supabase
           .from('service_orders')
           .insert({
             ...payload,
             user_id: user.id
-          });
+          })
+          .select()
+          .single();
         if (submitError) throw submitError;
+        createdOrder = newOrder;
       }
 
       await fetchOrders();
       await fetchProducts(); // Refresh products stock
       setIsModalOpen(false);
+      
+      // If we need to print after save
+      if (!editingOrder && printAfterSave && createdOrder) {
+        printEntryTerm({
+          id: createdOrder.id,
+          customerId: createdOrder.customer_id,
+          customerName: createdOrder.customer_name,
+          customerPhone: createdOrder.customer_phone,
+          cep: createdOrder.cep,
+          address: createdOrder.address,
+          device: createdOrder.device,
+          problem: createdOrder.problem,
+          status: createdOrder.status,
+          totalValue: createdOrder.total_value,
+          partsUsed: createdOrder.parts_used,
+          observations: createdOrder.observations,
+          createdAt: createdOrder.created_at,
+          updatedAt: createdOrder.updated_at,
+          warrantyPeriod: createdOrder.warranty_period,
+          technicianId: createdOrder.technician_id,
+          technicianName: createdOrder.technician_name
+        });
+      }
+
+      setPrintAfterSave(false);
       setEditingOrder(null);
       setFormData({ 
         customerId: '', 
@@ -342,7 +368,6 @@ export default function ServiceOrders({ user }: { user: any }) {
         warrantyPeriod: '90 dias',
         technicianId: '',
         technicianName: '',
-        laborValue: 0,
         partsUsed: []
       });
     } catch (err: any) {
@@ -546,14 +571,55 @@ export default function ServiceOrders({ user }: { user: any }) {
     doc.setFontSize(10);
     doc.text(`Aparelho: ${order.device}`, 14, 102);
     doc.text(`Defeito Relatado: ${order.problem}`, 14, 107);
+    
+    let currentY = 112;
     if (order.observations) {
       const splitObs = doc.splitTextToSize(`Observações: ${order.observations}`, 180);
-      doc.text(splitObs, 14, 112);
+      doc.text(splitObs, 14, currentY);
+      currentY += (splitObs.length * 5);
     }
+    currentY += 5;
+
+    // CHECKLIST SECTION
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text('CHECKLIST DE ENTRADA', 14, currentY);
+    currentY += 7;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+
+    const checklistItems = [
+      "Tela/Vidro", "Touch Screen", "Câmera Frontal", "Câmera Traseira",
+      "Microfone", "Alto-falante", "Conector de Carga", "Botões (Power/Vol)",
+      "Wi-Fi/Bluetooth", "Biometria/Face ID", "Bateria", "Sensores"
+    ];
+
+    const col1X = 14;
+    const col2X = 105;
+    let checkY = currentY;
+
+    checklistItems.forEach((item, index) => {
+      const x = index % 2 === 0 ? col1X : col2X;
+      if (index % 2 === 0 && index > 0) checkY += 6;
+      
+      doc.rect(x, checkY - 3, 3, 3);
+      doc.text("OK", x + 4, checkY);
+      
+      doc.rect(x + 12, checkY - 3, 3, 3);
+      doc.text("Falha", x + 16, checkY);
+      
+      doc.rect(x + 28, checkY - 3, 3, 3);
+      doc.text("N/A", x + 32, checkY);
+      
+      doc.text(item, x + 42, checkY);
+    });
+
+    currentY = checkY + 10;
 
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
-    doc.text('TERMOS E CONDIÇÕES', 14, 130);
+    doc.text('TERMOS E CONDIÇÕES', 14, currentY);
+    currentY += 7;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     
@@ -566,19 +632,24 @@ export default function ServiceOrders({ user }: { user: any }) {
       "6. A assistência não se responsabiliza por dados armazenados no aparelho. É responsabilidade do cliente realizar backup prévio."
     ];
 
-    let yPos = 138;
     terms.forEach(term => {
       const splitTerm = doc.splitTextToSize(term, 180);
-      doc.text(splitTerm, 14, yPos);
-      yPos += (splitTerm.length * 5);
+      doc.text(splitTerm, 14, currentY);
+      currentY += (splitTerm.length * 5);
     });
 
-    doc.setLineWidth(0.5);
-    doc.line(30, 240, 90, 240);
-    doc.text('Assinatura do Cliente', 60, 245, { align: 'center' });
+    currentY += 30;
+    if (currentY > 280) {
+      doc.addPage();
+      currentY = 40;
+    }
 
-    doc.line(120, 240, 180, 240);
-    doc.text('Assinatura da Empresa', 150, 245, { align: 'center' });
+    doc.setLineWidth(0.5);
+    doc.line(30, currentY, 90, currentY);
+    doc.text('Assinatura do Cliente', 60, currentY + 5, { align: 'center' });
+
+    doc.line(120, currentY, 180, currentY);
+    doc.text('Assinatura da Empresa', 150, currentY + 5, { align: 'center' });
 
     doc.save(`Termo_OS_${order.id?.substring(0, 8)}.pdf`);
   };
@@ -759,7 +830,6 @@ export default function ServiceOrders({ user }: { user: any }) {
                 warrantyPeriod: '90 dias',
                 technicianId: '',
                 technicianName: '',
-                laborValue: 0,
                 partsUsed: []
               });
               setIsModalOpen(true);
@@ -844,7 +914,6 @@ export default function ServiceOrders({ user }: { user: any }) {
                             problem: order.problem || '',
                             observations: order.observations || '',
                             totalValue: order.totalValue || 0,
-                            laborValue: (order.totalValue || 0) - (order.partsUsed || []).reduce((acc: number, p: any) => acc + (p.price * p.quantity), 0),
                             status: order.status || 'pending',
                             warrantyPeriod: order.warrantyPeriod || '90 dias',
                             technicianId: order.technicianId || '',
@@ -1006,7 +1075,6 @@ export default function ServiceOrders({ user }: { user: any }) {
                                 problem: order.problem || '',
                                 observations: order.observations || '',
                                 totalValue: order.totalValue || 0,
-                                laborValue: (order.totalValue || 0) - (order.partsUsed || []).reduce((acc: number, p: any) => acc + (p.price * p.quantity), 0),
                                 status: order.status || 'pending',
                                 warrantyPeriod: order.warrantyPeriod || '90 dias',
                                 technicianId: order.technicianId || '',
@@ -1242,24 +1310,12 @@ export default function ServiceOrders({ user }: { user: any }) {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Mão de Obra (R$)</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    className="w-full px-4 py-2 bg-orange-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-orange-700"
-                    value={isNaN(formData.laborValue) ? '' : formData.laborValue}
-                    onChange={e => setFormData({...formData, laborValue: parseFloat(e.target.value) || 0})}
-                  />
-                </div>
-                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Valor Total (Estimado)</label>
                   <input 
-                    required
-                    type="number" 
-                    step="0.01"
-                    className="w-full px-4 py-2 bg-orange-100 border-none rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-black text-orange-600"
-                    value={isNaN(formData.totalValue) ? '' : formData.totalValue}
-                    onChange={e => setFormData({...formData, totalValue: parseFloat(e.target.value) || 0})}
+                    readOnly
+                    type="text" 
+                    className="w-full px-4 py-2 bg-gray-100 border-none rounded-xl outline-none font-black text-gray-600 cursor-not-allowed"
+                    value={formatCurrency(formData.totalValue)}
                   />
                 </div>
                 <div>
@@ -1375,10 +1431,21 @@ export default function ServiceOrders({ user }: { user: any }) {
                 >
                   Cancelar
                 </button>
+                {!editingOrder && (
+                  <button 
+                    type="submit"
+                    disabled={isSaving}
+                    onClick={() => setPrintAfterSave(true)}
+                    className="flex-1 px-6 py-3 bg-orange-100 text-orange-700 font-semibold rounded-xl hover:bg-orange-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? 'Salvando...' : <><Printer className="w-5 h-5" /> Salvar e Imprimir</>}
+                  </button>
+                )}
                 <button 
                   type="submit"
                   disabled={isSaving}
-                  className="flex-1 px-6 py-3 bg-orange-600 text-white font-semibold rounded-xl hover:bg-orange-700 shadow-lg shadow-orange-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => setPrintAfterSave(false)}
+                  className="flex-1 px-6 py-3 bg-orange-600 text-white font-semibold rounded-xl hover:bg-orange-700 shadow-lg shadow-orange-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {isSaving ? 'Salvando...' : (editingOrder ? 'Salvar Alterações' : 'Abrir OS')}
                 </button>

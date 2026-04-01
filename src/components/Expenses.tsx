@@ -16,7 +16,7 @@ import {
   QrCode
 } from 'lucide-react';
 import { supabase } from '../supabase';
-import { formatCurrency, formatDate } from '../utils/format';
+import { formatCurrency, formatDate, formatCurrencyInput, parseCurrencyInput } from '../utils/format';
 
 interface Expense {
   id: string;
@@ -556,11 +556,10 @@ export default function Expenses({ user, isActive = true }: { user: any, isActiv
                   <label className="text-sm font-bold text-gray-700">Valor</label>
                   <input 
                     required
-                    type="number" 
-                    step="0.01"
+                    type="text" 
                     className="w-full px-4 py-3 bg-orange-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none"
-                    value={formData.amount || ''}
-                    onChange={e => setFormData({...formData, amount: e.target.value})}
+                    value={formatCurrencyInput(formData.amount)}
+                    onChange={e => setFormData({...formData, amount: parseCurrencyInput(e.target.value)})}
                   />
                 </div>
                 <div className="space-y-1">

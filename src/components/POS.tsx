@@ -20,7 +20,7 @@ import {
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { supabase } from '../supabase';
 import { Product, SaleItem } from '../types';
-import { formatCurrency, formatDate } from '../utils/format';
+import { formatCurrency, formatDate, formatCurrencyInput, parseCurrencyInput } from '../utils/format';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
@@ -171,7 +171,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   const handleAddPayment = (method: string) => {
     let amount = 0;
     if (currentPaymentAmount) {
-      amount = parseFloat(currentPaymentAmount.replace(/\D/g, '')) / 100;
+      amount = parseCurrencyInput(currentPaymentAmount);
     } else {
       amount = remainingAmount;
     }
@@ -747,24 +747,22 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
                   <option value="percentage">%</option>
                 </select>
                 <input 
-                  type="number" 
-                  min="0"
-                  value={discount || ''}
-                  onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
+                  type="text" 
+                  value={discountType === 'fixed' ? formatCurrencyInput(discount) : discount || ''}
+                  onChange={(e) => setDiscount(discountType === 'fixed' ? parseCurrencyInput(e.target.value) : parseFloat(e.target.value) || 0)}
                   className="w-full px-2 py-1.5 text-xs font-bold outline-none"
-                  placeholder="0.00"
+                  placeholder={discountType === 'fixed' ? "R$ 0,00" : "0"}
                 />
               </div>
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-500 uppercase">Acréscimo (R$)</label>
               <input 
-                type="number" 
-                min="0"
-                value={addition || ''}
-                onChange={(e) => setAddition(parseFloat(e.target.value) || 0)}
+                type="text" 
+                value={formatCurrencyInput(addition)}
+                onChange={(e) => setAddition(parseCurrencyInput(e.target.value))}
                 className="w-full bg-white border border-orange-200 rounded-lg px-2 py-1.5 text-xs font-bold outline-none"
-                placeholder="0.00"
+                placeholder="R$ 0,00"
               />
             </div>
           </div>
@@ -818,18 +816,10 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
                 <input
                   type="text"
                   value={currentPaymentAmount}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, '');
-                    const number = parseInt(value) / 100;
-                    if (!isNaN(number)) {
-                      setCurrentPaymentAmount(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(number));
-                    } else {
-                      setCurrentPaymentAmount('');
-                    }
-                  }}
+                  onChange={(e) => setCurrentPaymentAmount(formatCurrencyInput(e.target.value))}
                   onFocus={() => {
                     if (!currentPaymentAmount && remainingAmount > 0) {
-                      setCurrentPaymentAmount(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(remainingAmount));
+                      setCurrentPaymentAmount(formatCurrencyInput(remainingAmount));
                     }
                   }}
                   onKeyDown={(e) => {
