@@ -47,6 +47,7 @@ export default function ServiceOrders({ user }: { user: any }) {
   const [deliveringOrder, setDeliveringOrder] = useState<ServiceOrder | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cash' | 'credit_card' | 'debit_card' | 'pix'>('cash');
   const [printAfterSave, setPrintAfterSave] = useState(false);
+  const [printWarrantyAfterDelivery, setPrintWarrantyAfterDelivery] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
 
@@ -253,6 +254,8 @@ export default function ServiceOrders({ user }: { user: any }) {
         parts_used: formData.partsUsed
       };
 
+      let createdOrder = null;
+
       if (editingOrder) {
         // Calculate difference in parts to update stock
         const oldParts = editingOrder.partsUsed || [];
@@ -312,7 +315,6 @@ export default function ServiceOrders({ user }: { user: any }) {
           }
         }
 
-        let createdOrder = null;
         const { data: newOrder, error: submitError } = await supabase
           .from('service_orders')
           .insert({
@@ -443,6 +445,9 @@ export default function ServiceOrders({ user }: { user: any }) {
       await fetchOrders();
       // Feedback visual opcional
       if (newStatus === 'delivered') {
+        if (printWarrantyAfterDelivery && deliveringOrder) {
+          printWarrantyTerm(deliveringOrder);
+        }
         alert("Ordem de Serviço entregue e finalizada com sucesso!");
         setIsDeliveryModalOpen(false);
         setDeliveringOrder(null);
@@ -531,6 +536,115 @@ export default function ServiceOrders({ user }: { user: any }) {
     doc.text('Obrigado pela preferência!', 40, currentY, { align: 'center' });
 
     doc.save(`OS_${order.id?.substring(0, 8)}.pdf`);
+  };
+
+  const printWarrantyTerm = (order: ServiceOrder) => {
+    const doc = new jsPDF();
+    const storeName = profile?.store_name || 'CELLREPAIR PRO';
+    const storeCnpj = profile?.cnpj || '';
+    const storePhone = profile?.phone || '';
+    const storeAddress = profile?.address || '';
+
+    doc.setFontSize(18);
+    doc.text('TERMO DE GARANTIA', 105, 20, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.text(`Empresa: ${storeName}`, 14, 35);
+    if (storeCnpj) doc.text(`CNPJ: ${storeCnpj}`, 14, 40);
+    if (storePhone) doc.text(`Telefone: ${storePhone}`, 14, 45);
+    if (storeAddress) doc.text(`Endereço: ${storeAddress}`, 14, 50);
+
+    doc.text(`OS Nº: ${order.id?.substring(0, 8)}`, 140, 35);
+    doc.text(`Data de Entrega: ${formatDate(new Date())}`, 140, 40);
+
+    doc.setLineWidth(0.5);
+    doc.line(14, 55, 196, 55);
+
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text('DADOS DO CLIENTE', 14, 65);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Nome: ${order.customerName}`, 14, 72);
+    doc.text(`Telefone: ${order.customerPhone}`, 14, 77);
+
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text('DADOS DO EQUIPAMENTO E SERVIÇO', 14, 90);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Aparelho: ${order.device}`, 14, 97);
+    doc.text(`Defeito Relatado: ${order.problem}`, 14, 102);
+    
+    let currentY = 107;
+    if (order.partsUsed && order.partsUsed.length > 0) {
+      doc.text('Peças Substituídas / Serviços Realizados:', 14, currentY);
+      currentY += 5;
+      order.partsUsed.forEach(part => {
+        doc.text(`- ${part.name} (Qtd: ${part.quantity})`, 14, currentY);
+        currentY += 5;
+      });
+    }
+
+    currentY += 5;
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text('CONDIÇÕES DA GARANTIA', 14, currentY);
+    currentY += 7;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    
+    const terms = [
+      `1. PRAZO: A garantia cobre exclusivamente os serviços realizados e as peças substituídas descritas nesta Ordem de Serviço, pelo período de ${order.warrantyPeriod || '90 dias'} a partir da data de entrega.`,
+      "",
+      "2. A GARANTIA NÃO COBRE:",
+      "   - Danos causados por mau uso, quedas, choques físicos, torções ou pressão na tela/aparelho.",
+      "   - Contato com líquidos, umidade ou oxidação (mesmo em aparelhos classificados como resistentes a água).",
+      "   - Danos causados por picos de energia, raios ou uso de carregadores não originais/inadequados.",
+      "   - Atualizações de software malsucedidas, jailbreak, root, vírus ou aplicativos de terceiros.",
+      "   - Intervenção, abertura ou tentativa de reparo por terceiros ou pelo próprio cliente.",
+      "   - Rompimento, rasura ou violação do selo de garantia da loja.",
+      "",
+      "3. TELAS E DISPLAYS: A garantia cobre apenas perda de sensibilidade do touch ou falhas na imagem que NÃO sejam decorrentes de quebra, trinca, riscos profundos ou vazamento de cristal líquido (manchas escuras/listras) causados por impacto ou pressão.",
+      "",
+      "4. BATERIAS: A garantia cobre defeitos de fabricação. Não cobre desgaste natural ou vícios causados por mau uso (ex: deixar descarregar totalmente com frequência, uso contínuo durante o carregamento).",
+      "",
+      "5. ACIONAMENTO: Para acionar a garantia, é OBRIGATÓRIA a apresentação deste termo impresso e do aparelho com o selo de garantia intacto.",
+      "",
+      "6. PRAZO DE RESOLUÇÃO: O prazo máximo para resolução de problemas em garantia é de até 30 dias, conforme o Código de Defesa do Consumidor (Art. 18)."
+    ];
+
+    terms.forEach(term => {
+      const splitTerm = doc.splitTextToSize(term, 180);
+      
+      // Check if we need a new page
+      if (currentY + (splitTerm.length * 5) > 270) {
+        doc.addPage();
+        currentY = 20;
+      }
+      
+      doc.text(splitTerm, 14, currentY);
+      currentY += (splitTerm.length * 5);
+    });
+
+    currentY += 30;
+    if (currentY > 280) {
+      doc.addPage();
+      currentY = 40;
+    }
+
+    doc.setLineWidth(0.5);
+    doc.line(30, currentY, 90, currentY);
+    doc.text('Assinatura do Cliente', 60, currentY + 5, { align: 'center' });
+    
+    doc.line(120, currentY, 180, currentY);
+    doc.text('Assinatura da Loja', 150, currentY + 5, { align: 'center' });
+
+    doc.setFontSize(8);
+    doc.text('Declaro que recebi o equipamento testado e em perfeito funcionamento referente aos serviços contratados,', 105, currentY + 15, { align: 'center' });
+    doc.text('e que li e concordo com os termos de garantia descritos acima.', 105, currentY + 20, { align: 'center' });
+
+    doc.save(`Garantia_OS_${order.id?.substring(0, 8)}.pdf`);
   };
 
   const printEntryTerm = (order: ServiceOrder) => {
@@ -691,6 +805,17 @@ export default function ServiceOrders({ user }: { user: any }) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isDeliveryModalOpen, selectedPaymentMethod, deliveringOrder]);
+
+  const getRowBackground = (status: ServiceOrder['status']) => {
+    switch (status) {
+      case 'pending': return 'bg-yellow-50 hover:bg-yellow-100 border-l-4 border-l-yellow-500';
+      case 'in-progress': return 'bg-blue-50 hover:bg-blue-100 border-l-4 border-l-blue-500';
+      case 'completed': return 'bg-green-50 hover:bg-green-100 border-l-4 border-l-green-500';
+      case 'delivered': return 'bg-purple-50 hover:bg-purple-100 border-l-4 border-l-purple-500';
+      case 'cancelled': return 'bg-red-50 hover:bg-red-100 border-l-4 border-l-red-500';
+      default: return 'bg-white hover:bg-gray-50 border-l-4 border-l-gray-200';
+    }
+  };
 
   const getStatusBadge = (status: ServiceOrder['status']) => {
     const styles = {
@@ -872,13 +997,13 @@ export default function ServiceOrders({ user }: { user: any }) {
             </div>
           </div>
 
-          <div className="divide-y divide-orange-50">
+          <div className="divide-y divide-gray-100">
             {filteredOrders.map((order) => (
-              <div key={order.id} className="p-6 hover:bg-orange-50/30 transition-colors">
+              <div key={order.id} className={`p-6 transition-colors ${getRowBackground(order.status)}`}>
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                   <div className="flex items-start gap-4">
-                    <div className="bg-orange-100 p-3 rounded-2xl">
-                      <Smartphone className="w-6 h-6 text-orange-600" />
+                    <div className="bg-white/60 p-3 rounded-2xl shadow-sm">
+                      <Smartphone className="w-6 h-6 text-gray-700" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2 mb-1">
@@ -991,6 +1116,12 @@ export default function ServiceOrders({ user }: { user: any }) {
                             <FileText className="w-4 h-4" /> Termo de Entrada
                           </button>
                           <button 
+                            onClick={() => printWarrantyTerm(order)}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 flex items-center gap-2"
+                          >
+                            <FileText className="w-4 h-4" /> Termo de Garantia
+                          </button>
+                          <button 
                             onClick={() => printReceipt(order)}
                             className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 flex items-center gap-2"
                           >
@@ -1048,7 +1179,7 @@ export default function ServiceOrders({ user }: { user: any }) {
                 </div>
                 <div className="space-y-3">
                   {filteredOrders.filter(o => o.status === status).map(order => (
-                    <div key={order.id} className="bg-white p-4 rounded-xl shadow-sm border border-orange-100 hover:shadow-md transition-shadow">
+                    <div key={order.id} className={`p-4 rounded-xl shadow-sm hover:shadow-md transition-all ${getRowBackground(order.status)}`}>
                       <div className="flex justify-between items-start mb-2">
                         <h4 className="font-bold text-gray-900 text-sm">{order.customerName}</h4>
                         <span className="text-xs font-bold text-orange-600">{formatCurrency(order.totalValue)}</span>
@@ -1128,6 +1259,12 @@ export default function ServiceOrders({ user }: { user: any }) {
                                 className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 flex items-center gap-2"
                               >
                                 <FileText className="w-4 h-4" /> Termo de Entrada
+                              </button>
+                              <button 
+                                onClick={() => printWarrantyTerm(order)}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 flex items-center gap-2"
+                              >
+                                <FileText className="w-4 h-4" /> Termo de Garantia
                               </button>
                               <button 
                                 onClick={() => printReceipt(order)}
@@ -1528,6 +1665,19 @@ export default function ServiceOrders({ user }: { user: any }) {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="flex items-center gap-2 px-1">
+              <input
+                type="checkbox"
+                id="printWarranty"
+                checked={printWarrantyAfterDelivery}
+                onChange={(e) => setPrintWarrantyAfterDelivery(e.target.checked)}
+                className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500"
+              />
+              <label htmlFor="printWarranty" className="text-sm text-gray-700 cursor-pointer">
+                Imprimir Termo de Garantia após confirmar
+              </label>
             </div>
 
             <div className="flex gap-3 pt-2">

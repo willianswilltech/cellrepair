@@ -67,16 +67,17 @@ export default function Dashboard({ user, isActive = true }: { user: any, isActi
         const start = startOfDay(parseISO(dateRange.start)).toISOString();
         const end = endOfDay(parseISO(dateRange.end)).toISOString();
         
-        const [salesRes, ordersRes, allProductsRes, lowStockRes, expensesRes] = await Promise.all([
+        const [salesRes, ordersCreatedRes, ordersUpdatedRes, allProductsRes, lowStockRes, expensesRes] = await Promise.all([
           supabase.from('sales').select('*').eq('user_id', user.id).gte('created_at', start).lte('created_at', end),
           supabase.from('service_orders').select('*').eq('user_id', user.id).gte('created_at', start).lte('created_at', end),
+          supabase.from('service_orders').select('*').eq('user_id', user.id).gte('updated_at', start).lte('updated_at', end),
           supabase.from('products').select('*').eq('user_id', user.id),
           supabase.from('products').select('*').eq('user_id', user.id).lte('stock', 5),
           supabase.from('expenses').select('amount').eq('user_id', user.id).eq('status', 'paid').gte('paid_at', start).lte('paid_at', end)
         ]);
 
-        if (salesRes.error || ordersRes.error || allProductsRes.error || lowStockRes.error || expensesRes.error) {
-          const firstError = salesRes.error || ordersRes.error || allProductsRes.error || lowStockRes.error || expensesRes.error;
+        if (salesRes.error || ordersCreatedRes.error || ordersUpdatedRes.error || allProductsRes.error || lowStockRes.error || expensesRes.error) {
+          const firstError = salesRes.error || ordersCreatedRes.error || ordersUpdatedRes.error || allProductsRes.error || lowStockRes.error || expensesRes.error;
           setError(`Erro ao buscar dados: ${firstError?.message || 'Erro desconhecido'}.`);
           return;
         }
@@ -130,8 +131,14 @@ export default function Dashboard({ user, isActive = true }: { user: any, isActi
           });
         });
 
+        // Combine and deduplicate orders
+        const allOrdersMap = new Map();
+        ordersCreatedRes.data?.forEach(o => allOrdersMap.set(o.id, o));
+        ordersUpdatedRes.data?.forEach(o => allOrdersMap.set(o.id, o));
+        const allOrders = Array.from(allOrdersMap.values());
+
         // Process Orders
-        ordersRes.data?.forEach(o => {
+        allOrders.forEach(o => {
           if (o.status === 'delivered') {
             revenue += Number(o.total_value) || 0;
             const method = o.payment_method || 'Outros';
@@ -182,8 +189,10 @@ export default function Dashboard({ user, isActive = true }: { user: any, isActi
             .filter(s => format(new Date(s.created_at), 'yyyy-MM-dd') === dayStr)
             .reduce((acc, s) => acc + Number(s.total), 0);
           
-          const dayOrders = (ordersRes.data || [])
-            .filter(o => o.status === 'delivered' && format(new Date(o.created_at), 'yyyy-MM-dd') === dayStr)
+          const dayOrders = allOrders
+            .filter(o => o.status === 'delivered' && (
+              format(new Date(o.updated_at || o.created_at), 'yyyy-MM-dd') === dayStr
+            ))
             .reduce((acc, o) => acc + Number(o.total_value), 0);
 
           return { 
@@ -217,7 +226,7 @@ export default function Dashboard({ user, isActive = true }: { user: any, isActi
 
         setStats({
           totalSales: salesRes.data?.length || 0,
-          totalOrders: ordersRes.data?.length || 0,
+          totalOrders: allOrders.length || 0,
           lowStock: lowStockRes.data?.length || 0,
           revenue,
           expenses: expenses,

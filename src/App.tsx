@@ -80,14 +80,28 @@ export default function App() {
     }
 
     // Check active sessions and subscribe to auth changes
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Error getting session:', error);
+        if (error.message.includes('Refresh Token Not Found') || error.message.includes('Invalid Refresh Token')) {
+          // Clear the invalid session
+          supabase.auth.signOut().catch(console.error);
+        }
+      }
       setUser(session?.user ?? null);
+      setLoading(false);
+    }).catch(error => {
+      console.error('Unexpected error getting session:', error);
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (!session) setProfile(null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setProfile(null);
+      } else if (session) {
+        setUser(session.user);
+      }
       setLoading(false);
     });
 
