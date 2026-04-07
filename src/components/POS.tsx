@@ -91,8 +91,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       .from('products')
       .select('*')
       .eq('user_id', user.id)
-      .order('name')
-      .limit(100);
+      .order('name');
     
     if (error) {
       console.error('Error fetching products:', error);
@@ -338,6 +337,13 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   }, []);
 
   useEffect(() => {
+    if (isActive) {
+      fetchProducts();
+      fetchCategories();
+    }
+  }, [isActive]);
+
+  useEffect(() => {
     if (searchTerm.trim().length >= 3) {
       const exactMatch = products.find(p => p.barcode === searchTerm.trim());
       if (exactMatch) {
@@ -401,6 +407,14 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
         setIsScanning(false);
       }
 
+      if (showSuccess) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          setShowSuccess(false);
+        }
+        return; // Do not process other shortcuts if success modal is open
+      }
+
       if (e.key === 'F1') handleAddPayment('cash');
       if (e.key === 'F2') handleAddPayment('credit_card');
       if (e.key === 'F3') handleAddPayment('debit_card');
@@ -436,10 +450,11 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [cart, isProcessing, activeSession, paymentMethod, handleAddPayment, confirmCheckout, remainingAmount, selectedPaymentIndex, PAYMENT_METHODS]);
+  }, [cart, isProcessing, activeSession, paymentMethod, handleAddPayment, confirmCheckout, remainingAmount, selectedPaymentIndex, PAYMENT_METHODS, showSuccess]);
 
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (showSuccess) return;
     if (e.key === 'Enter' && searchTerm.trim()) {
       const exactMatch = products.find(p => 
         p.barcode === searchTerm.trim() || 
@@ -548,7 +563,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:h-[calc(100vh-160px)] relative">
+    <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 h-[calc(100vh-120px)] lg:h-[calc(100vh-160px)] relative">
       {!activeSession && (
         <div className="absolute inset-0 z-50 bg-white/60 backdrop-blur-[2px] flex items-center justify-center rounded-3xl border-2 border-dashed border-orange-200">
           <div className="bg-white p-8 rounded-3xl shadow-2xl border border-orange-100 text-center max-w-md animate-in zoom-in duration-300">
@@ -567,7 +582,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       )}
 
       {/* Product Selection */}
-      <div className="lg:col-span-2 flex flex-col space-y-4">
+      <div className="flex-1 flex flex-col space-y-4 min-h-0">
         <div className="flex flex-col gap-4">
           <div className="flex gap-4">
             <div className="relative flex-1">
@@ -676,7 +691,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       </div>
 
       {/* Cart / Checkout */}
-      <div className="bg-orange-50/10 rounded-3xl shadow-xl border border-orange-100 flex flex-col overflow-hidden">
+      <div className="flex-1 lg:flex-none lg:w-1/3 xl:w-[400px] bg-orange-50/10 rounded-3xl shadow-xl border border-orange-100 flex flex-col overflow-hidden min-h-0">
         <div className="p-6 border-b border-orange-50 bg-orange-50/50 flex items-center justify-between">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <ShoppingCart className="w-6 h-6 text-orange-600" />

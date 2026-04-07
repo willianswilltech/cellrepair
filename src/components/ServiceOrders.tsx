@@ -33,7 +33,7 @@ import { fetchAddressByCep } from '../utils/cep';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
-export default function ServiceOrders({ user }: { user: any }) {
+export default function ServiceOrders({ user, isActive = true }: { user: any, isActive?: boolean }) {
   const [isLoading, setIsLoading] = useState(true);
   const [orders, setOrders] = useState<ServiceOrder[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -448,9 +448,11 @@ export default function ServiceOrders({ user }: { user: any }) {
         if (printWarrantyAfterDelivery && deliveringOrder) {
           printWarrantyTerm(deliveringOrder);
         }
-        alert("Ordem de Serviço entregue e finalizada com sucesso!");
         setIsDeliveryModalOpen(false);
         setDeliveringOrder(null);
+        setTimeout(() => {
+          alert("Ordem de Serviço entregue e finalizada com sucesso!");
+        }, 500);
       }
     } catch (error: any) {
       console.error('Error updating status:', error);
@@ -577,11 +579,13 @@ export default function ServiceOrders({ user }: { user: any }) {
     doc.text(`Defeito Relatado: ${order.problem}`, 14, 102);
     
     let currentY = 107;
-    if (order.partsUsed && order.partsUsed.length > 0) {
+    if (order.partsUsed && Array.isArray(order.partsUsed) && order.partsUsed.length > 0) {
       doc.text('Peças Substituídas / Serviços Realizados:', 14, currentY);
       currentY += 5;
-      order.partsUsed.forEach(part => {
-        doc.text(`- ${part.name} (Qtd: ${part.quantity})`, 14, currentY);
+      order.partsUsed.forEach((part: any) => {
+        const name = typeof part === 'string' ? part : (part.name || 'Peça/Serviço');
+        const qty = typeof part === 'string' ? 1 : (part.quantity || 1);
+        doc.text(`- ${name} (Qtd: ${qty})`, 14, currentY);
         currentY += 5;
       });
     }
@@ -767,6 +771,15 @@ export default function ServiceOrders({ user }: { user: any }) {
 
     doc.save(`Termo_OS_${order.id?.substring(0, 8)}.pdf`);
   };
+
+  useEffect(() => {
+    if (isActive) {
+      fetchOrders();
+      fetchCustomers();
+      fetchTechnicians();
+      fetchProducts();
+    }
+  }, [isActive]);
 
   // Keyboard shortcuts for delivery modal
   useEffect(() => {

@@ -19,7 +19,7 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import JsBarcode from 'jsbarcode';
 
-export default function Inventory({ user }: { user: any }) {
+export default function Inventory({ user, isActive = true }: { user: any, isActive?: boolean }) {
   const [isLoading, setIsLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -106,6 +106,13 @@ export default function Inventory({ user }: { user: any }) {
   }, []);
 
   useEffect(() => {
+    if (isActive) {
+      fetchProducts();
+      fetchCategories();
+    }
+  }, [isActive]);
+
+  useEffect(() => {
     if (isScanning) {
       const scanner = new Html5QrcodeScanner(
         "inventory-reader",
@@ -153,8 +160,7 @@ export default function Inventory({ user }: { user: any }) {
       .from('products')
       .select('*')
       .eq('user_id', user.id)
-      .order('name')
-      .limit(200);
+      .order('name');
     
     if (error) {
       console.error('Error fetching products:', error);

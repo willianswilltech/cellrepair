@@ -40,7 +40,7 @@ import { formatCurrency, formatCurrencyInput, parseCurrencyInput } from '../util
 import { format, startOfMonth, endOfMonth, subDays, isWithinInterval, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfYear, endOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-export default function Cashier({ user }: { user: any }) {
+export default function Cashier({ user, isActive = true }: { user: any, isActive?: boolean }) {
   console.log("Renderizando componente Cashier para o usuário:", user?.id);
   const [error, setError] = useState<string | null>(null);
   const [sales, setSales] = useState([]);
@@ -171,6 +171,14 @@ export default function Cashier({ user }: { user: any }) {
   useEffect(() => {
     fetchSessionsHistory();
   }, [historyDateRange]);
+
+  useEffect(() => {
+    if (isActive) {
+      fetchData();
+      checkActiveSession();
+      fetchSessionsHistory();
+    }
+  }, [isActive]);
 
   const checkActiveSession = async () => {
     try {

@@ -429,10 +429,10 @@ export default function App() {
             <Dashboard user={user} isActive={activeTab === 'dashboard'} />
           </div>
           <div className={cn(activeTab !== 'inventory' && "hidden")}>
-            <Inventory user={user} />
+            <Inventory user={user} isActive={activeTab === 'inventory'} />
           </div>
           <div className={cn(activeTab !== 'orders' && "hidden")}>
-            <ServiceOrders user={user} />
+            <ServiceOrders user={user} isActive={activeTab === 'orders'} />
           </div>
           <div className={cn(activeTab !== 'technicians' && "hidden")}>
             <Technicians user={user} />
@@ -444,7 +444,7 @@ export default function App() {
             <SalesHistory user={user} onNavigate={setActiveTab} />
           </div>
           <div className={cn(activeTab !== 'cashier' && "hidden")}>
-            <Cashier user={user} />
+            <Cashier user={user} isActive={activeTab === 'cashier'} />
           </div>
           <div className={cn(activeTab !== 'expenses' && "hidden")}>
             <Expenses user={user} isActive={activeTab === 'expenses'} />
