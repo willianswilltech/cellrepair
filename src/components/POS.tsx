@@ -563,7 +563,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 relative w-full max-w-full box-border">
+    <div className="flex flex-row gap-4 lg:gap-8 w-full h-[calc(100vh-120px)]">
       {!activeSession && (
         <div className="absolute inset-0 z-50 bg-white/60 backdrop-blur-[2px] flex items-center justify-center rounded-3xl border-2 border-dashed border-orange-200">
           <div className="bg-white p-8 rounded-3xl shadow-2xl border border-orange-100 text-center max-w-md animate-in zoom-in duration-300">
@@ -582,7 +582,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       )}
 
       {/* Product Selection */}
-      <div className="flex-1 flex flex-col space-y-4 overflow-y-auto max-w-full">
+      <div className="flex-1 flex flex-col space-y-4 overflow-hidden h-full">
         <div className="flex flex-col gap-4">
           <div className="flex gap-4">
             <div className="relative flex-1">
@@ -691,7 +691,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       </div>
 
       {/* Cart / Checkout */}
-      <div className="w-full lg:flex-none lg:w-1/3 xl:w-[400px] bg-orange-50/10 rounded-3xl shadow-xl border border-orange-100 flex flex-col max-w-full">
+      <div className="w-[350px] flex-shrink-0 bg-orange-50/10 rounded-3xl shadow-xl border border-orange-100 flex flex-col overflow-y-auto h-full">
         <div className="p-6 border-b border-orange-50 bg-orange-50/50 flex items-center justify-between">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <ShoppingCart className="w-6 h-6 text-orange-600" />

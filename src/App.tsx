@@ -423,8 +423,8 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto p-4 lg:p-8">
-        <div className="max-w-7xl mx-auto">
+      <main className="flex-1 overflow-hidden p-4 lg:p-8">
+        <div className="w-full h-full">
           <div className={cn(activeTab !== 'dashboard' && "hidden")}>
             <Dashboard user={user} isActive={activeTab === 'dashboard'} />
           </div>
