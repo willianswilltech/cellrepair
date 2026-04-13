@@ -563,7 +563,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 h-[calc(100vh-120px)] lg:h-[calc(100vh-160px)] relative w-full overflow-x-hidden">
+    <div className="flex flex-col lg:flex-row gap-0 lg:gap-8 h-[calc(100vh-120px)] lg:h-[calc(100vh-160px)] relative w-full max-w-full overflow-x-hidden box-border">
       {!activeSession && (
         <div className="absolute inset-0 z-50 bg-white/60 backdrop-blur-[2px] flex items-center justify-center rounded-3xl border-2 border-dashed border-orange-200">
           <div className="bg-white p-8 rounded-3xl shadow-2xl border border-orange-100 text-center max-w-md animate-in zoom-in duration-300">
@@ -582,7 +582,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       )}
 
       {/* Product Selection */}
-      <div className="flex-1 flex flex-col space-y-4 min-h-0">
+      <div className="flex-1 flex flex-col space-y-4 min-h-0 max-w-full">
         <div className="flex flex-col gap-4">
           <div className="flex gap-4">
             <div className="relative flex-1">
@@ -661,15 +661,15 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
         </div>
 
         {isScanning && (
-          <div className="bg-white p-4 rounded-3xl border border-orange-100 shadow-xl overflow-hidden relative">
-            <div id="reader" className="w-full"></div>
+          <div className="bg-white p-4 rounded-3xl border border-orange-100 shadow-xl overflow-hidden relative max-w-full">
+            <div id="reader" className="w-full max-w-full"></div>
             <p className="text-center text-sm text-gray-500 mt-4">
               Aponte a câmera para o código de barras ou QR code do produto.
             </p>
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+        <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
           {filteredProducts.map((product) => (
             <button
               key={product.id}
@@ -691,7 +691,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       </div>
 
       {/* Cart / Checkout */}
-      <div className="flex-1 lg:flex-none lg:w-1/3 xl:w-[400px] bg-orange-50/10 rounded-3xl shadow-xl border border-orange-100 flex flex-col overflow-hidden min-h-0">
+      <div className="w-full lg:flex-none lg:w-1/3 xl:w-[400px] bg-orange-50/10 rounded-3xl shadow-xl border border-orange-100 flex flex-col overflow-hidden min-h-0 max-w-full">
         <div className="p-6 border-b border-orange-50 bg-orange-50/50 flex items-center justify-between">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <ShoppingCart className="w-6 h-6 text-orange-600" />
