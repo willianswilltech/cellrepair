@@ -563,7 +563,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-0 lg:gap-8 h-screen overflow-hidden relative w-full max-w-full box-border">
+    <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 min-h-screen relative w-full max-w-full box-border p-4">
       {!activeSession && (
         <div className="absolute inset-0 z-50 bg-white/60 backdrop-blur-[2px] flex items-center justify-center rounded-3xl border-2 border-dashed border-orange-200">
           <div className="bg-white p-8 rounded-3xl shadow-2xl border border-orange-100 text-center max-w-md animate-in zoom-in duration-300">
