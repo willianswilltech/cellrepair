@@ -476,7 +476,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       
       const matchesCategory = !selectedCategory || p.category === selectedCategory;
       
-      return matchesSearch && matchesCategory;
+      return matchesSearch && (searchTerm.trim() !== '' || matchesCategory);
     });
   }, [products, searchTerm, selectedCategory]);
 
@@ -582,7 +582,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       )}
 
       {/* Product Selection */}
-      <div className="flex-1 flex flex-col space-y-4 overflow-hidden h-full">
+      <div className="flex-1 flex flex-col space-y-4 overflow-hidden h-full min-h-0">
         <div className="flex flex-col gap-4">
           <div className="flex gap-4">
             <div className="relative flex-1">
@@ -669,7 +669,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+        <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 min-h-0">
           {filteredProducts.map((product) => (
             <button
               key={product.id}
