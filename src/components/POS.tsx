@@ -563,7 +563,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-0 lg:gap-8 h-[calc(100vh-120px)] lg:h-[calc(100vh-160px)] relative w-full max-w-full overflow-x-hidden box-border">
+    <div className="flex flex-col lg:flex-row gap-0 lg:gap-8 h-screen overflow-hidden relative w-full max-w-full box-border">
       {!activeSession && (
         <div className="absolute inset-0 z-50 bg-white/60 backdrop-blur-[2px] flex items-center justify-center rounded-3xl border-2 border-dashed border-orange-200">
           <div className="bg-white p-8 rounded-3xl shadow-2xl border border-orange-100 text-center max-w-md animate-in zoom-in duration-300">
@@ -691,7 +691,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       </div>
 
       {/* Cart / Checkout */}
-      <div className="w-full lg:flex-none lg:w-1/3 xl:w-[400px] bg-orange-50/10 rounded-3xl shadow-xl border border-orange-100 flex flex-col overflow-hidden min-h-0 max-w-full">
+      <div className="w-full lg:flex-none lg:w-1/3 xl:w-[400px] bg-orange-50/10 rounded-3xl shadow-xl border border-orange-100 flex flex-col overflow-hidden min-h-0 max-w-full flex-shrink-0 lg:h-full lg:flex-1">
         <div className="p-6 border-b border-orange-50 bg-orange-50/50 flex items-center justify-between">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <ShoppingCart className="w-6 h-6 text-orange-600" />
