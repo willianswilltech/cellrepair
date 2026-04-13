@@ -593,7 +593,12 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
                 placeholder="Buscar produto por nome, categoria ou código..." 
                 className="w-full pl-10 pr-4 py-3 bg-orange-50/20 border border-orange-100 rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  if (e.target.value.trim() !== '') {
+                    setSelectedCategory(null);
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && searchTerm.trim()) {
                     const exactMatch = products.find(p => 
