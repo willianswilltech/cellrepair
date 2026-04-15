@@ -383,8 +383,16 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
     setError(null);
     try {
       // Filtrar no banco de dados pelo período selecionado
-      const start = dateRange.start + 'T00:00:00';
-      const end = dateRange.end + 'T23:59:59';
+      let start = dateRange.start + 'T00:00:00';
+      let end = dateRange.end + 'T23:59:59';
+
+      // Se houver sessão ativa, garantir que buscamos desde a abertura dela
+      if (activeSessionRef.current) {
+        const sessionStart = activeSessionRef.current.opened_at;
+        if (sessionStart < start) {
+          start = sessionStart;
+        }
+      }
 
       const [salesRes, ordersRes, movementsRes] = await Promise.all([
         supabase.from('sales').select('*').eq('user_id', user.id).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false }),

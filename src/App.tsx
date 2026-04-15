@@ -437,7 +437,7 @@ export default function App() {
           <div className={cn(activeTab !== 'technicians' && "hidden")}>
             <Technicians user={user} />
           </div>
-          <div className={cn(activeTab !== 'pos' && "hidden")}>
+          <div className={cn(activeTab !== 'pos' && "hidden", "flex-1 overflow-hidden")}>
             <POS user={user} onNavigate={setActiveTab} isActive={activeTab === 'pos'} />
           </div>
           <div className={cn(activeTab !== 'sales' && "hidden")}>
