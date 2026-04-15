@@ -649,7 +649,10 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
           {/* Category Filter */}
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
             <button
-              onClick={() => setSelectedCategory(null)}
+              onClick={() => {
+                setSelectedCategory(null);
+                setSearchTerm('');
+              }}
               className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all border ${
                 selectedCategory === null 
                   ? 'bg-orange-600 text-white border-orange-600 shadow-md' 
@@ -661,7 +664,10 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
             {categories.map((cat) => (
               <button
                 key={cat.id}
-                onClick={() => setSelectedCategory(cat.name)}
+                onClick={() => {
+                  setSelectedCategory(cat.name);
+                  setSearchTerm('');
+                }}
                 className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all border ${
                   selectedCategory === cat.name 
                     ? 'bg-orange-600 text-white border-orange-600 shadow-md' 
