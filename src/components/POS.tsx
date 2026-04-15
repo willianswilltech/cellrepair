@@ -31,6 +31,13 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   const [cart, setCart] = useState<SaleItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Clear category when searching
+  useEffect(() => {
+    if (searchTerm.trim() !== '') {
+      setSelectedCategory(null);
+    }
+  }, [searchTerm]);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit_card' | 'debit_card' | 'pix'>('cash');
   const [discount, setDiscount] = useState<number>(0);
   const [discountType, setDiscountType] = useState<'fixed' | 'percentage'>('fixed');
@@ -469,6 +476,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   };
 
   const filteredProducts = React.useMemo(() => {
+    console.log("Filtering products:", { searchTerm, selectedCategory, productsCount: products.length });
     if (searchTerm.trim() !== '') {
       const term = searchTerm.toLowerCase();
       return products.filter(p => 
