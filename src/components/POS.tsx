@@ -469,15 +469,16 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
   };
 
   const filteredProducts = React.useMemo(() => {
-    return products.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.barcode && p.barcode.toLowerCase().includes(searchTerm.toLowerCase()));
-      
-      const matchesCategory = !selectedCategory || p.category === selectedCategory;
-      
-      return matchesSearch && (searchTerm.trim() !== '' || matchesCategory);
-    });
+    if (searchTerm.trim() !== '') {
+      const term = searchTerm.toLowerCase();
+      return products.filter(p => 
+        p.name.toLowerCase().includes(term) ||
+        p.category.toLowerCase().includes(term) ||
+        (p.barcode && p.barcode.toLowerCase().includes(term))
+      );
+    }
+    
+    return products.filter(p => !selectedCategory || p.category === selectedCategory);
   }, [products, searchTerm, selectedCategory]);
 
   const printReceipt = (sale: any) => {
