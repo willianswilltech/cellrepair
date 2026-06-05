@@ -1,4 +1,6 @@
-// @ts-nocheck
+import os
+
+content = """// @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, Banknote, QrCode,
@@ -170,9 +172,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       setLastSale({ items: cart, total: finalTotal, paymentMethod: primaryPaymentMethod, payments, discount: discountAmount, addition, date: new Date() });
       setShowSuccess(true);
     } catch (error: any) {
-      alert("❌ Erro ao finalizar venda:
-
-" + (error.message || "Erro desconhecido."));
+      alert("❌ Erro ao finalizar venda:\n\n" + (error.message || "Erro desconhecido."));
     } finally {
       setIsProcessing(false);
     }
@@ -671,3 +671,9 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
     </div>
   );
 }
+"""
+
+with open(r"c:\Users\Desktop\Documents\antigravity\meus projetos01\cellrepair\src\components\POS.tsx", "w", encoding="utf-8") as f:
+    f.write(content)
+
+print("POS.tsx has been successfully completely rewritten!")
