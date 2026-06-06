@@ -233,11 +233,43 @@ export default function ServiceOrders({ user, isActive = true }: { user: any, is
     setError(null);
     setIsSaving(true);
     try {
+      let finalCustomerId = formData.customerId;
+
+      // Auto-cadastrar cliente se não existir
+      if (!finalCustomerId && formData.customerName) {
+        const existingCustomer = customers.find(c => 
+          c.name.toLowerCase() === formData.customerName.toLowerCase() && 
+          (c.phone === formData.customerPhone || !formData.customerPhone)
+        );
+
+        if (existingCustomer) {
+          finalCustomerId = existingCustomer.id;
+        } else {
+          const { data: newCustomer, error: customerError } = await supabase
+            .from('customers')
+            .insert({
+              name: formData.customerName,
+              phone: formData.customerPhone || '',
+              cep: formData.cep || '',
+              address: formData.address || '',
+              user_id: user.id
+            })
+            .select()
+            .single();
+
+          if (customerError) {
+            console.error('Erro ao auto-cadastrar cliente:', customerError);
+          } else if (newCustomer) {
+            finalCustomerId = newCustomer.id;
+          }
+        }
+      }
+
       const selectedTech = technicians.find(t => t.id === formData.technicianId);
       const commissionValue = selectedTech ? (formData.totalValue * (selectedTech.commission_percentage / 100)) : 0;
 
       const payload = {
-        customer_id: formData.customerId || null,
+        customer_id: finalCustomerId || null,
         customer_name: formData.customerName,
         customer_phone: formData.customerPhone,
         cep: formData.cep,
