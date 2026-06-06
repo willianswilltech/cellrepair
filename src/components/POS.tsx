@@ -170,9 +170,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
       setLastSale({ items: cart, total: finalTotal, paymentMethod: primaryPaymentMethod, payments, discount: discountAmount, addition, date: new Date() });
       setShowSuccess(true);
     } catch (error: any) {
-      alert("❌ Erro ao finalizar venda:
-
-" + (error.message || "Erro desconhecido."));
+      alert("❌ Erro ao finalizar venda:\n\n" + (error.message || "Erro desconhecido."));
     } finally {
       setIsProcessing(false);
     }
