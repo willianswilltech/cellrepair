@@ -49,6 +49,7 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
   const activeSessionRef = useRef<any>(null);
   const [movements, setMovements] = useState([]);
   const [sessionsHistory, setSessionsHistory] = useState([]);
+  const [periodExpenses, setPeriodExpenses] = useState([]);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useEffect(() => {
@@ -152,11 +153,17 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
       })
       .subscribe();
 
+    const expensesChannel = supabase
+      .channel('cashier_expenses')
+      .on('postgres_changes', { event: '*', table: 'expenses' }, () => setRefreshTrigger(prev => prev + 1))
+      .subscribe();
+
     return () => {
       supabase.removeChannel(salesChannel);
       supabase.removeChannel(ordersChannel);
       supabase.removeChannel(sessionChannel);
       supabase.removeChannel(movementChannel);
+      supabase.removeChannel(expensesChannel);
     };
   }, []);
 
@@ -394,15 +401,19 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
         }
       }
 
-      const [salesRes, ordersRes, movementsRes] = await Promise.all([
+      const [salesRes, ordersRes, movementsRes, expensesRes] = await Promise.all([
         supabase.from('sales').select('*').eq('user_id', user.id).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false }),
         supabase.from('service_orders').select('*').eq('user_id', user.id).eq('status', 'delivered').gte('updated_at', start).lte('updated_at', end).order('updated_at', { ascending: false }),
-        supabase.from('cashier_movements').select('*').eq('user_id', user.id).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false })
+        supabase.from('cashier_movements').select('*').eq('user_id', user.id).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false }),
+        supabase.from('expenses').select('*').eq('user_id', user.id).eq('status', 'paid').gte('due_date', dateRange.start).lte('due_date', dateRange.end).order('due_date', { ascending: false })
       ]);
 
       if (salesRes.error) throw salesRes.error;
       if (ordersRes.error) throw ordersRes.error;
       if (movementsRes.error) throw movementsRes.error;
+      if (expensesRes.error) throw expensesRes.error;
+
+      setPeriodExpenses(expensesRes.data || []);
 
       const mappedSales = (salesRes.data || []).map((s: any) => {
         const metadata = Array.isArray(s.items) ? s.items.find((i: any) => i.productId === 'METADATA') : null;
@@ -788,11 +799,53 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
     return acc;
   }, { suprimento: 0, sangria: 0 });
 
-  const totalsByMethod = allTransactions.reduce((acc, curr) => {
-    const method = curr.payment_method || 'cash';
-    acc[method] = (acc[method] || 0) + (curr.total || curr.total_value || 0);
+  // Consolidated calculation by payment methods
+  const revenueByMethod = allTransactions.reduce((acc, curr) => {
+    if (curr.type === 'sale' && curr.payments && curr.payments.length > 0) {
+      curr.payments.forEach(p => {
+        const method = p.method || 'cash';
+        acc[method] = (acc[method] || 0) + (Number(p.amount) || 0);
+      });
+    } else {
+      const method = curr.payment_method || curr.paymentMethod || 'cash';
+      acc[method] = (acc[method] || 0) + (Number(curr.total) || Number(curr.totalValue) || Number(curr.total_value) || 0);
+    }
     return acc;
   }, {});
+
+  const movementsInByMethod = filteredMovements.filter(m => m.type === 'suprimento').reduce((acc, curr) => {
+    const method = curr.payment_method || 'cash';
+    acc[method] = (acc[method] || 0) + (Number(curr.amount) || 0);
+    return acc;
+  }, {});
+
+  const movementsOutByMethod = filteredMovements.filter(m => m.type === 'sangria').reduce((acc, curr) => {
+    const method = curr.payment_method || 'cash';
+    acc[method] = (acc[method] || 0) + (Number(curr.amount) || 0);
+    return acc;
+  }, {});
+
+  const expensesPaidByMethod = periodExpenses.reduce((acc, curr) => {
+    const method = curr.payment_method || 'cash';
+    acc[method] = (acc[method] || 0) + (Number(curr.amount) || 0);
+    return acc;
+  }, {});
+
+  const cashInflow = (revenueByMethod['cash'] || 0) + (movementsInByMethod['cash'] || 0);
+  const cashOutflow = (movementsOutByMethod['cash'] || 0) + (expensesPaidByMethod['cash'] || 0);
+  const cashReal = cashInflow - cashOutflow + (activeSession ? Number(activeSession.initial_amount) : 0);
+
+  const pixInflow = (revenueByMethod['pix'] || 0) + (movementsInByMethod['pix'] || 0);
+  const pixOutflow = (movementsOutByMethod['pix'] || 0) + (expensesPaidByMethod['pix'] || 0);
+  const pixReal = pixInflow - pixOutflow;
+
+  const cardInflow = (revenueByMethod['credit_card'] || 0) + (revenueByMethod['debit_card'] || 0) + (movementsInByMethod['credit_card'] || 0) + (movementsInByMethod['debit_card'] || 0);
+  const cardOutflow = (movementsOutByMethod['credit_card'] || 0) + (movementsOutByMethod['debit_card'] || 0) + (expensesPaidByMethod['credit_card'] || 0) + (expensesPaidByMethod['debit_card'] || 0);
+  const cardReal = cardInflow - cardOutflow;
+
+  const saldoRealTotal = cashReal + pixReal + cardReal;
+
+  const totalsByMethod = revenueByMethod;
 
   // Prepare chart data
   const chartData = [];
@@ -958,6 +1011,36 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
 
       {view === 'overview' ? (
         <>
+          {/* Saldos Reais Consolidados */}
+          <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm space-y-4">
+            <div>
+              <h2 className="text-lg font-black text-gray-900">Saldos Consolidados (Valor Real)</h2>
+              <p className="text-xs text-gray-500 font-medium">Fluxo de caixa real (Entradas - Saídas/Despesas/Estoque) para o período selecionado.</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100/50 flex flex-col justify-between min-h-[100px]">
+                <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Dinheiro (Em Caixa)</span>
+                <span className="text-xl font-black text-blue-900 mt-2">{formatCurrency(cashReal)}</span>
+                <span className="text-[10px] text-gray-400 mt-1">Entradas: {formatCurrency(cashInflow)} | Saídas: {formatCurrency(cashOutflow)}</span>
+              </div>
+              <div className="bg-emerald-50/50 p-5 rounded-2xl border border-emerald-100/50 flex flex-col justify-between min-h-[100px]">
+                <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider">PIX (Banco)</span>
+                <span className="text-xl font-black text-emerald-900 mt-2">{formatCurrency(pixReal)}</span>
+                <span className="text-[10px] text-gray-400 mt-1">Entradas: {formatCurrency(pixInflow)} | Saídas: {formatCurrency(pixOutflow)}</span>
+              </div>
+              <div className="bg-purple-50/50 p-5 rounded-2xl border border-purple-100/50 flex flex-col justify-between min-h-[100px]">
+                <span className="text-[10px] font-bold text-purple-500 uppercase tracking-wider">Cartão (Banco)</span>
+                <span className="text-xl font-black text-purple-900 mt-2">{formatCurrency(cardReal)}</span>
+                <span className="text-[10px] text-gray-400 mt-1">Entradas: {formatCurrency(cardInflow)} | Saídas: {formatCurrency(cardOutflow)}</span>
+              </div>
+              <div className="bg-orange-600 p-5 rounded-2xl border border-orange-500 shadow-md flex flex-col justify-between min-h-[100px] text-white">
+                <span className="text-[10px] font-bold text-orange-100 uppercase tracking-wider">Saldo Líquido Real</span>
+                <span className="text-2xl font-black mt-2">{formatCurrency(saldoRealTotal)}</span>
+                <span className="text-[10px] text-orange-200 mt-1">Total em caixa e bancos</span>
+              </div>
+            </div>
+          </div>
+
           {/* Active Session Status */}
           {activeSession && (
             <div className="bg-orange-50/40 border border-orange-100 p-6 rounded-3xl shadow-sm flex flex-col lg:flex-row items-center justify-between gap-6">

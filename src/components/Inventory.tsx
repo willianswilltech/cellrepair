@@ -68,7 +68,8 @@ export default function Inventory({ user, isActive = true }: { user: any, isActi
     stock: 0,
     category: '',
     categoryId: '',
-    barcode: ''
+    barcode: '',
+    purchasePaymentMethod: 'cash'
   });
 
   useEffect(() => {
@@ -309,6 +310,10 @@ export default function Inventory({ user, isActive = true }: { user: any, isActi
         user_id: user.id
       };
 
+      // Calculate stock difference
+      const stockDiff = editingProduct ? (formData.stock - editingProduct.stock) : formData.stock;
+      const totalCost = stockDiff * formData.cost;
+
       if (editingProduct) {
         const { error: submitError } = await supabase
           .from('products')
@@ -324,11 +329,62 @@ export default function Inventory({ user, isActive = true }: { user: any, isActi
           .insert([payload]);
         if (submitError) throw submitError;
       }
+
+      // If stock increased and there is cost, register the expense/sangria
+      if (totalCost > 0) {
+        const { data: activeSession } = await supabase
+          .from('cashier_sessions')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('status', 'open')
+          .maybeSingle();
+
+        if (activeSession) {
+          // Register sangria in active session
+          const { error: movementErr } = await supabase
+            .from('cashier_movements')
+            .insert([{
+              user_id: user.id,
+              session_id: activeSession.id,
+              type: 'sangria',
+              amount: totalCost,
+              description: `Compra de estoque: ${formData.name} (${stockDiff} un)`,
+              payment_method: formData.purchasePaymentMethod || 'cash'
+            }]);
+
+          if (movementErr) console.error("Erro ao registrar sangria de estoque:", movementErr);
+
+          // Update expected amount if paid in cash
+          if ((formData.purchasePaymentMethod || 'cash') === 'cash') {
+            const newExpected = activeSession.expected_amount - totalCost;
+            await supabase
+              .from('cashier_sessions')
+              .update({ expected_amount: newExpected })
+              .eq('id', activeSession.id);
+          }
+        } else {
+          // Register paid expense
+          const { error: expenseErr } = await supabase
+            .from('expenses')
+            .insert([{
+              user_id: user.id,
+              description: `Compra de estoque: ${formData.name} (${stockDiff} un)`,
+              amount: totalCost,
+              category: 'Estoque',
+              due_date: new Date().toISOString().split('T')[0],
+              status: 'paid',
+              payment_method: formData.purchasePaymentMethod || 'cash',
+              paid_at: new Date().toISOString()
+            }]);
+
+          if (expenseErr) console.error("Erro ao registrar despesa de estoque:", expenseErr);
+        }
+      }
       
       await fetchProducts();
       setIsModalOpen(false);
       setEditingProduct(null);
-      setFormData({ name: '', description: '', price: 0, cost: 0, stock: 0, category: '', categoryId: '', barcode: '' });
+      setFormData({ name: '', description: '', price: 0, cost: 0, stock: 0, category: '', categoryId: '', barcode: '', purchasePaymentMethod: 'cash' });
     } catch (err: any) {
       console.error("Erro ao salvar produto:", err);
       setError(err.message || "Ocorreu um erro ao salvar o produto. Verifique os dados e tente novamente.");
@@ -556,7 +612,7 @@ export default function Inventory({ user, isActive = true }: { user: any, isActi
           <button 
             onClick={() => {
               setEditingProduct(null);
-              setFormData({ name: '', description: '', price: 0, cost: 0, stock: 0, category: '', categoryId: '', barcode: '' });
+              setFormData({ name: '', description: '', price: 0, cost: 0, stock: 0, category: '', categoryId: '', barcode: '', purchasePaymentMethod: 'cash' });
               setIsModalOpen(true);
             }}
             className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 shadow-lg shadow-orange-200 transition-all"
@@ -648,7 +704,8 @@ export default function Inventory({ user, isActive = true }: { user: any, isActi
                             stock: product.stock || 0,
                             category: product.category || '',
                             categoryId: product.categoryId || '',
-                            barcode: product.barcode || ''
+                            barcode: product.barcode || '',
+                            purchasePaymentMethod: 'cash'
                           });
                           setIsModalOpen(true);
                         }}
@@ -725,6 +782,27 @@ export default function Inventory({ user, isActive = true }: { user: any, isActi
                     </button>
                   </div>
                 </div>
+                
+                {(editingProduct ? formData.stock > editingProduct.stock : formData.stock > 0) && (
+                  <div className="sm:col-span-2 bg-orange-50/50 p-4 rounded-xl border border-orange-100 space-y-2">
+                    <label className="block text-sm font-bold text-gray-700">Forma de Pagamento da Compra de Estoque</label>
+                    <select
+                      required
+                      className="w-full px-4 py-2 bg-white border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-semibold"
+                      value={formData.purchasePaymentMethod || 'cash'}
+                      onChange={e => setFormData({ ...formData, purchasePaymentMethod: e.target.value })}
+                    >
+                      <option value="cash">Dinheiro</option>
+                      <option value="pix">PIX</option>
+                      <option value="credit_card">Cartão de Crédito</option>
+                      <option value="debit_card">Cartão de Débito</option>
+                    </select>
+                    <p className="text-xs text-orange-600 font-medium">
+                      Esta entrada de estoque gerará um lançamento de saída de <strong>R$ {((editingProduct ? formData.stock - editingProduct.stock : formData.stock) * formData.cost).toFixed(2).replace('.', ',')}</strong> no caixa.
+                    </p>
+                  </div>
+                )}
+                
                 {isScanning && (
                   <div className="sm:col-span-2 bg-white p-2 rounded-xl border border-orange-100 shadow-inner overflow-hidden relative">
                     <div id="inventory-reader" className="w-full"></div>
