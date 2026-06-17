@@ -378,7 +378,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
           </div>
 
           {/* Categories */}
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-2 px-2">
+          <div className="flex flex-wrap gap-2 pb-2">
             <button
               onClick={() => { setSelectedCategory(null); setSearchTerm(''); }}
               className={`px-5 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all shadow-sm flex items-center gap-2 ${
