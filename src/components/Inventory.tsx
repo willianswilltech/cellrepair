@@ -332,12 +332,15 @@ export default function Inventory({ user, isActive = true }: { user: any, isActi
 
       // If stock increased and there is cost, register the expense/sangria
       if (totalCost > 0) {
-        const { data: activeSession } = await supabase
+        const { data: activeSessions } = await supabase
           .from('cashier_sessions')
           .select('*')
           .eq('user_id', user.id)
           .eq('status', 'open')
-          .maybeSingle();
+          .order('opened_at', { ascending: false })
+          .limit(1);
+
+        const activeSession = activeSessions && activeSessions.length > 0 ? activeSessions[0] : null;
 
         if (activeSession) {
           // Register sangria in active session
@@ -985,13 +988,5 @@ export default function Inventory({ user, isActive = true }: { user: any, isActi
         </div>
       )}
     </div>
-  );
-}
-
-function X({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-    </svg>
   );
 }

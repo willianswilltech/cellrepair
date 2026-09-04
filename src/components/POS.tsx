@@ -56,14 +56,16 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
 
   const checkActiveSession = async () => {
     try {
+      if (!user?.id) return;
       const { data, error } = await supabase
         .from('cashier_sessions')
         .select('*')
         .eq('user_id', user.id)
         .eq('status', 'open')
-        .maybeSingle();
+        .order('opened_at', { ascending: false })
+        .limit(1);
       if (error) throw error;
-      setActiveSession(data);
+      setActiveSession(data && data.length > 0 ? data[0] : null);
     } catch (error) {
       console.error("Erro ao verificar sessão:", error);
     }
@@ -196,7 +198,7 @@ export default function POS({ user, onNavigate, isActive }: { user: any, onNavig
     return () => { supabase.removeChannel(channel); supabase.removeChannel(sessionChannel); if (scannerRef.current) scannerRef.current.clear(); };
   }, []);
 
-  useEffect(() => { if (isActive) { fetchProducts(); fetchCategories(); } }, [isActive]);
+  useEffect(() => { if (isActive) { fetchProducts(); fetchCategories(); checkActiveSession(); } }, [isActive]);
 
   useEffect(() => {
     if (searchTerm.trim().length >= 3) {

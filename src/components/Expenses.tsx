@@ -72,15 +72,17 @@ export default function Expenses({ user, isActive = true }: { user: any, isActiv
 
   const fetchActiveSession = async () => {
     try {
+      if (!user?.id) return;
       const { data, error } = await supabase
         .from('cashier_sessions')
         .select('*')
         .eq('user_id', user.id)
         .eq('status', 'open')
-        .maybeSingle();
+        .order('opened_at', { ascending: false })
+        .limit(1);
 
       if (error) throw error;
-      setActiveSession(data);
+      setActiveSession(data && data.length > 0 ? data[0] : null);
     } catch (error) {
       console.error('Error fetching active session:', error);
     }

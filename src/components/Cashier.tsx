@@ -40,6 +40,17 @@ import { formatCurrency, formatCurrencyInput, parseCurrencyInput } from '../util
 import { format, startOfMonth, endOfMonth, subDays, isWithinInterval, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfYear, endOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
+const safeFormatDate = (dateStr: any, formatPattern: string, options?: any) => {
+  if (!dateStr) return '-';
+  try {
+    const d = typeof dateStr === 'string' ? parseISO(dateStr) : new Date(dateStr);
+    if (isNaN(d.getTime())) return '-';
+    return format(d, formatPattern, options);
+  } catch {
+    return '-';
+  }
+};
+
 export default function Cashier({ user, isActive = true }: { user: any, isActive?: boolean }) {
   console.log("Renderizando componente Cashier para o usuário:", user?.id);
   const [error, setError] = useState<string | null>(null);
@@ -189,18 +200,22 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
 
   const checkActiveSession = async () => {
     try {
+      if (!user?.id) return;
       const { data, error: sbError } = await supabase
         .from('cashier_sessions')
         .select('*')
         .eq('user_id', user.id)
         .eq('status', 'open')
-        .single();
+        .order('opened_at', { ascending: false })
+        .limit(1);
 
-      if (sbError && sbError.code !== 'PGRST116') {
+      if (sbError) {
         setError(`Erro ao verificar sessão: ${sbError.message} (${sbError.code})`);
         throw sbError;
       }
-      setActiveSession(data || null);
+      
+      const currentSession = data && data.length > 0 ? data[0] : null;
+      setActiveSession(currentSession);
     } catch (err) {
       console.error("Erro ao verificar sessão ativa:", err);
     }
@@ -478,22 +493,43 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
   };
 
   const handleOpenCashier = async () => {
-    if (isSubmitting || submittingRef.current) return;
+    if (isSubmitting) return;
     setIsSubmitting(true);
     submittingRef.current = true;
     console.log("handleOpenCashier chamado", formData);
     try {
+      if (!user?.id) {
+        alert("Erro: Usuário não autenticado.");
+        setIsSubmitting(false);
+        submittingRef.current = false;
+        return;
+      }
+
       const amount = parseCurrencyInput(formData.amount);
       console.log("Valor processado:", amount);
+
+      // Encerrar sessões abertas anteriores caso existam para evitar duplicidade
+      try {
+        await supabase
+          .from('cashier_sessions')
+          .update({ status: 'closed', closed_at: new Date().toISOString() })
+          .eq('user_id', user.id)
+          .eq('status', 'open');
+      } catch (e) {
+        console.warn("Aviso ao tentar fechar sessões pendentes:", e);
+      }
       
+      const newSessionPayload = {
+        user_id: user.id,
+        opened_at: new Date().toISOString(),
+        initial_amount: amount,
+        expected_amount: amount,
+        status: 'open'
+      };
+
       const { data, error: sbError } = await supabase
         .from('cashier_sessions')
-        .insert([{
-          user_id: user.id,
-          initial_amount: amount,
-          expected_amount: amount,
-          status: 'open'
-        }])
+        .insert([newSessionPayload])
         .select();
 
       if (sbError) {
@@ -505,21 +541,16 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
         return;
       }
 
-      if (data && data.length > 0) {
-        console.log("Sessão criada com sucesso:", data[0]);
-        setActiveSession(data[0]);
-        setIsOpeningModal(false);
-        setFormData({ amount: '', description: '' });
-        alert("Caixa aberto com sucesso!");
-      } else {
-        console.log("Nenhum dado retornado, verificando sessão ativa...");
-        await checkActiveSession();
-        setIsOpeningModal(false);
-        alert("Caixa aberto (verificado via checkActiveSession)");
-      }
+      const createdSession = data && data.length > 0 ? data[0] : newSessionPayload;
+      console.log("Sessão criada com sucesso:", createdSession);
+      setActiveSession(createdSession);
+      setIsOpeningModal(false);
+      setFormData({ amount: '', description: '', payment_method: 'cash' });
+      await checkActiveSession();
+      alert("Caixa aberto com sucesso!");
     } catch (error: any) {
       console.error("Erro fatal no handleOpenCashier:", error);
-      alert("Erro crítico: " + error.message);
+      alert("Erro crítico ao abrir caixa: " + error.message);
     } finally {
       setIsSubmitting(false);
       submittingRef.current = false;
@@ -1050,7 +1081,7 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
                 </div>
                 <div>
                   <h2 className="text-xl font-black text-orange-900">Caixa Aberto</h2>
-                  <p className="text-orange-600 text-sm font-medium">Iniciado em {format(parseISO(activeSession.opened_at), "dd/MM 'às' HH:mm", { locale: ptBR })}</p>
+                  <p className="text-orange-600 text-sm font-medium">Iniciado em {safeFormatDate(activeSession?.opened_at, "dd/MM 'às' HH:mm", { locale: ptBR })}</p>
                 </div>
               </div>
               
@@ -1504,10 +1535,10 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
                 {sessionsHistory.map((session) => (
                   <tr key={session.id} className="hover:bg-orange-50/30 transition-colors">
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {format(parseISO(session.opened_at), "dd/MM/yyyy HH:mm")}
+                      {safeFormatDate(session.opened_at, "dd/MM/yyyy HH:mm")}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {session.closed_at ? format(parseISO(session.closed_at), "dd/MM/yyyy HH:mm") : '-'}
+                      {safeFormatDate(session.closed_at, "dd/MM/yyyy HH:mm")}
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-bold text-gray-900">
                       {formatCurrency(session.initial_amount)}
@@ -1600,7 +1631,6 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
                     placeholder="R$ 0,00"
                     value={formData.amount}
                     onChange={e => setFormData({...formData, amount: formatCurrencyInput(e.target.value)})}
-                    required
                   />
                 </div>
               </div>
@@ -1743,7 +1773,7 @@ export default function Cashier({ user, isActive = true }: { user: any, isActive
               <div>
                 <h3 className="text-xl font-black text-orange-900">Detalhes do Caixa</h3>
                 <p className="text-xs text-orange-600 font-bold">
-                  Sessão de {format(parseISO(selectedSessionDetails.opened_at), "dd/MM/yyyy HH:mm")}
+                  Sessão de {safeFormatDate(selectedSessionDetails.opened_at, "dd/MM/yyyy HH:mm")}
                 </p>
               </div>
               <button onClick={() => setSelectedSessionDetails(null)} className="p-2 hover:bg-orange-100 rounded-xl transition-colors">
